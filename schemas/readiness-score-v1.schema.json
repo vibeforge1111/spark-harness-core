@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/readiness-score-v1.schema.json",
+  "title": "Spark Readiness Score V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "score_id",
+    "created_at",
+    "target",
+    "categories",
+    "promotion_gates",
+    "overall"
+  ],
+  "properties": {
+    "schema_version": { "const": "readiness-score-v1" },
+    "score_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "owner_repo"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["repo", "surface", "capability", "release", "resource"] },
+        "id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution",
+        "tools",
+        "context",
+        "lifecycle",
+        "observability",
+        "verification",
+        "governance"
+      ],
+      "properties": {
+        "execution": { "$ref": "#/$defs/categoryScore" },
+        "tools": { "$ref": "#/$defs/categoryScore" },
+        "context": { "$ref": "#/$defs/categoryScore" },
+        "lifecycle": { "$ref": "#/$defs/categoryScore" },
+        "observability": { "$ref": "#/$defs/categoryScore" },
+        "verification": { "$ref": "#/$defs/categoryScore" },
+        "governance": { "$ref": "#/$defs/categoryScore" }
+      }
+    },
+    "promotion_gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "public_ready",
+        "network_absorbable",
+        "telegram_live_proven",
+        "startup_benchmark_proven",
+        "zero_high_agency_legacy_local_gates"
+      ],
+      "properties": {
+        "public_ready": { "type": "boolean" },
+        "network_absorbable": { "type": "boolean" },
+        "telegram_live_proven": { "type": "boolean" },
+        "startup_benchmark_proven": { "type": "boolean" },
+        "zero_high_agency_legacy_local_gates": { "type": "boolean" }
+      }
+    },
+    "overall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "status", "summary"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "status": {
+          "type": "string",
+          "enum": ["blocked", "private_ready", "release_candidate", "public_ready"]
+        },
+        "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    }
+  },
+  "$defs": {
+    "categoryScore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "evidence", "blockers"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+          "default": []
+        },
+        "blockers": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "default": []
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/capability-module-v1.schema.json",
+  "title": "Spark Capability Module V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capability_id",
+    "owner_repo",
+    "module_type",
+    "surface",
+    "summary",
+    "risk_tier",
+    "authority_required",
+    "tools",
+    "inputs",
+    "outputs",
+    "policy_hooks",
+    "tests"
+  ],
+  "properties": {
+    "schema_version": { "const": "capability-module-v1" },
+    "capability_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "module_type": {
+      "type": "string",
+      "enum": [
+        "surface_adapter",
+        "tool",
+        "agent",
+        "subagent",
+        "memory_store",
+        "domain_chip",
+        "evaluator",
+        "policy",
+        "hook",
+        "runtime_adapter",
+        "mission_worker",
+        "verifier"
+      ]
+    },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+    "authority_required": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/authorityState" },
+    "least_privilege_tools": { "type": "boolean", "default": true },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "risk_tier", "permission_scope"],
+        "properties": {
+          "name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+          "permission_scope": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        }
+      },
+      "default": []
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+    },
+    "policy_hooks": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+      "default": []
+    },
+    "tests": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "deprecated", "blocked"],
+      "default": "draft"
+    }
+  }
+}
+

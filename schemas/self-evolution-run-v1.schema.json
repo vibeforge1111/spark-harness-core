@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/self-evolution-run-v1.schema.json",
+  "title": "Spark Self Evolution Run V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evolution_id",
+    "created_at",
+    "mode",
+    "roles",
+    "experience_index",
+    "target_components",
+    "change_manifests",
+    "test_plan",
+    "promotion_decision"
+  ],
+  "properties": {
+    "schema_version": { "const": "self-evolution-run-v1" },
+    "evolution_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "mode": {
+      "type": "string",
+      "enum": ["observe", "propose", "sandbox", "live_qa", "promote", "rollback"]
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness_scientist", "surface_operator", "verifier"],
+      "properties": {
+        "harness_scientist": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "surface_operator": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "verifier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "experience_index": { "$ref": "https://spark.local/schemas/experience-index-v1.schema.json" },
+    "target_components": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/harness-component-v1.schema.json" },
+      "default": []
+    },
+    "change_manifests": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/change-manifest-v1.schema.json" },
+      "default": []
+    },
+    "test_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluation_packs", "live_surface_required", "commands"],
+      "properties": {
+        "evaluation_packs": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/evaluation-pack-v1.schema.json" },
+          "default": []
+        },
+        "live_surface_required": { "type": "boolean" },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "minItems": 1
+        }
+      }
+    },
+    "promotion_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "summary", "readiness_score"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["not_ready", "promote_private", "promote_release_candidate", "rollback"]
+        },
+        "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "readiness_score": { "$ref": "https://spark.local/schemas/readiness-score-v1.schema.json" }
+      }
+    }
+  }
+}
+

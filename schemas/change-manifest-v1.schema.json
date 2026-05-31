@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/change-manifest-v1.schema.json",
+  "title": "Spark Change Manifest V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "change_id",
+    "created_at",
+    "target_component",
+    "failure_evidence",
+    "root_cause_hypothesis",
+    "edit_summary",
+    "predicted_fixes",
+    "predicted_regression_risks",
+    "required_tests",
+    "live_proof_required",
+    "rollback_plan",
+    "observed_delta",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": { "const": "change-manifest-v1" },
+    "change_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "target_component": { "$ref": "https://spark.local/schemas/harness-component-v1.schema.json" },
+    "failure_evidence": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+      "minItems": 1
+    },
+    "root_cause_hypothesis": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "edit_summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "predicted_fixes": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "predicted_regression_risks": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "required_tests": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "live_proof_required": { "type": "boolean" },
+    "human_approval_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+    "rollback_plan": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "observed_delta": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/metric" },
+      "default": []
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["draft", "accepted", "rejected", "rolled_back", "needs_more_evidence"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "target_component": {
+            "properties": {
+              "component_type": {
+                "enum": ["verifier", "benchmark", "model_config", "authority_policy"]
+              }
+            },
+            "required": ["component_type"]
+          }
+        },
+        "required": ["target_component"]
+      },
+      "then": {
+        "required": ["human_approval_ref"]
+      }
+    }
+  ]
+}
+

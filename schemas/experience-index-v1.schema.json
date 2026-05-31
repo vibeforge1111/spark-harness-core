@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/experience-index-v1.schema.json",
+  "title": "Spark Experience Index V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "index_id", "created_at", "entries", "query_hints"],
+  "properties": {
+    "schema_version": { "const": "experience-index-v1" },
+    "index_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entry_id", "entry_type", "surface", "summary", "artifact", "tags"],
+        "properties": {
+          "entry_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "entry_type": {
+            "type": "string",
+            "enum": [
+              "raw_trace",
+              "cleaned_trace",
+              "trajectory_report",
+              "score",
+              "route_decision",
+              "tool_ledger",
+              "screenshot",
+              "diff",
+              "test_result",
+              "live_reply",
+              "failure_report",
+              "success_pattern"
+            ]
+          },
+          "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+          "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "artifact": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+          "tags": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+            "default": []
+          },
+          "linked_run_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "linked_change_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" }
+        }
+      },
+      "default": []
+    },
+    "query_hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description", "glob"],
+        "properties": {
+          "name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "description": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "glob": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        }
+      },
+      "default": []
+    }
+  }
+}
+

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/evaluation-pack-v1.schema.json",
+  "title": "Spark Evaluation Pack V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pack_id",
+    "created_at",
+    "scope",
+    "cases",
+    "metrics",
+    "jury",
+    "promotion_rules"
+  ],
+  "properties": {
+    "schema_version": { "const": "evaluation-pack-v1" },
+    "pack_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "scope": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+      "minItems": 1
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "case_type", "prompt_ref", "expected_move", "expected_authority_state"],
+        "properties": {
+          "case_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "case_type": {
+            "type": "string",
+            "enum": [
+              "negative_intent",
+              "positive_action",
+              "mixed_intent",
+              "stale_context",
+              "pending_state",
+              "startup_quality",
+              "tool_lifecycle",
+              "live_surface",
+              "regression",
+              "latency_cost"
+            ]
+          },
+          "prompt_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+          "expected_move": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/moveType" },
+          "expected_authority_state": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/authorityState" }
+        }
+      },
+      "minItems": 1
+    },
+    "metrics": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/metric" },
+      "minItems": 1
+    },
+    "jury": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blind", "judge_count", "rubric_ref"],
+      "properties": {
+        "blind": { "type": "boolean" },
+        "judge_count": { "type": "integer", "minimum": 1 },
+        "rubric_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
+      }
+    },
+    "promotion_rules": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    }
+  }
+}
+

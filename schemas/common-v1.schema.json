@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/common-v1.schema.json",
+  "title": "Spark Harness Common V1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sparkId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "telegram",
+        "cli",
+        "builder",
+        "spawner",
+        "memory",
+        "startup_operator",
+        "recursive_swarm",
+        "voice",
+        "domain_chip",
+        "browser",
+        "computer_use",
+        "api",
+        "test_harness",
+        "future_surface"
+      ]
+    },
+    "moveType": {
+      "type": "string",
+      "enum": [
+        "chat_explain",
+        "chat_plan",
+        "chat_compare",
+        "chat_score",
+        "chat_draft_text",
+        "read_current_state",
+        "prepare_action",
+        "confirm_action",
+        "execute_action"
+      ]
+    },
+    "riskTier": {
+      "type": "string",
+      "enum": ["none", "read", "low", "medium", "high", "critical"]
+    },
+    "authorityState": {
+      "type": "string",
+      "enum": [
+        "none",
+        "chat_only",
+        "read_only",
+        "prepare_allowed",
+        "confirmation_required",
+        "executable",
+        "blocked"
+      ]
+    },
+    "lifecycleStage": {
+      "type": "string",
+      "enum": [
+        "propose",
+        "validate",
+        "authorize",
+        "approve",
+        "interrupt",
+        "execute",
+        "sanitize",
+        "store",
+        "summarize",
+        "continue",
+        "rollback",
+        "fail"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "redactionClass": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "private",
+        "secret",
+        "metadata_only",
+        "redacted"
+      ]
+    },
+    "traceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "redaction_class"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sparkId" },
+        "href": { "$ref": "#/$defs/nonEmptyString" },
+        "redaction_class": { "$ref": "#/$defs/redactionClass" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path_or_uri", "redaction_class"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sparkId" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "path_or_uri": { "$ref": "#/$defs/nonEmptyString" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "redaction_class": { "$ref": "#/$defs/redactionClass" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "summary", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sparkId" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "fresh_user_intent",
+            "quoted_language",
+            "meta_language",
+            "negative_intent",
+            "positive_command",
+            "memory",
+            "pending_state",
+            "route_candidate",
+            "tool_result",
+            "runtime_state",
+            "test_result",
+            "human_confirmation",
+            "surface_signal",
+            "policy"
+          ]
+        },
+        "source": { "$ref": "#/$defs/nonEmptyString" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "trace_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/traceRef" },
+          "default": []
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "value": {
+          "type": ["number", "integer", "boolean", "string"]
+        },
+        "unit": { "$ref": "#/$defs/nonEmptyString" },
+        "higher_is_better": { "type": "boolean" }
+      }
+    }
+  }
+}
+

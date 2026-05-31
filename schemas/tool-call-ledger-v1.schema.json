@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/tool-call-ledger-v1.schema.json",
+  "title": "Spark Tool Call Ledger V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ledger_id",
+    "created_at",
+    "turn_id",
+    "action_id",
+    "capability_id",
+    "tool_name",
+    "lifecycle",
+    "authorization",
+    "arguments",
+    "result",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": { "const": "tool-call-ledger-v1" },
+    "ledger_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "turn_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "action_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "capability_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "tool_name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "lifecycle": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stage", "at", "verdict"],
+        "properties": {
+          "stage": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/lifecycleStage" },
+          "at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+          "verdict": {
+            "type": "string",
+            "enum": ["pending", "passed", "failed", "skipped"]
+          },
+          "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        }
+      },
+      "minItems": 1
+    },
+    "authorization": { "$ref": "https://spark.local/schemas/authorization-decision-v1.schema.json" },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_valid", "raw_ref", "sanitized_ref"],
+      "properties": {
+        "schema_valid": { "type": "boolean" },
+        "raw_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+        "sanitized_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "sanitized_output_ref"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["not_started", "success", "failure", "partial", "rolled_back"]
+        },
+        "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "sanitized_output_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+        "error_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+        "rollback_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
+      }
+    },
+    "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
+  }
+}
+

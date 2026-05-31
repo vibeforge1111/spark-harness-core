@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/harness-run-v1.schema.json",
+  "title": "Spark Harness Run V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "created_at",
+    "run_type",
+    "surface",
+    "model_refs",
+    "envelopes",
+    "tool_ledgers",
+    "artifacts",
+    "metrics",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": { "const": "harness-run-v1" },
+    "run_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "single_turn",
+        "route_matrix",
+        "live_surface_qa",
+        "startup_benchmark",
+        "blind_jury",
+        "mission",
+        "readiness_scan",
+        "self_evolution",
+        "release_gate"
+      ]
+    },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "model_refs": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "envelopes": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/turn-intent-envelope-vnext.schema.json" },
+      "default": []
+    },
+    "tool_ledgers": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/tool-call-ledger-v1.schema.json" },
+      "default": []
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+      "default": []
+    },
+    "metrics": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/metric" },
+      "default": []
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "blocked", "inconclusive"]
+        },
+        "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "remaining_risks": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "default": []
+        }
+      }
+    }
+  }
+}
+

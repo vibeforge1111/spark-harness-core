@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/turn-intent-envelope-vnext.schema.json",
+  "title": "Spark TurnIntent Envelope VNext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "turn_id",
+    "created_at",
+    "surface",
+    "actor",
+    "raw_turn_ref",
+    "selected_move",
+    "intent_summary",
+    "freshness",
+    "evidence",
+    "action_authority",
+    "proposed_actions",
+    "blocked_routes",
+    "context_policy",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": { "const": "turn-intent-envelope-vnext" },
+    "turn_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id_ref"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["human", "agent", "system"] },
+        "id_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "redaction_class": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/redactionClass" }
+      }
+    },
+    "raw_turn_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" },
+    "selected_move": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/moveType" },
+    "intent_summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh_user_intent_present", "stale_state_used_as_authority"],
+      "properties": {
+        "fresh_user_intent_present": { "type": "boolean" },
+        "stale_state_used_as_authority": { "type": "boolean", "const": false },
+        "memory_used_as_instruction": { "type": "boolean", "const": false },
+        "pending_state_used_as_authority": { "type": "boolean", "const": false }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+      "minItems": 1
+    },
+    "action_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "risk_tier", "confidence", "requires_human_confirmation"],
+      "properties": {
+        "state": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/authorityState" },
+        "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+        "confidence": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/confidence" },
+        "requires_human_confirmation": { "type": "boolean" },
+        "confirmation_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+        "reason": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "proposed_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action_id",
+          "capability_id",
+          "action_type",
+          "risk_tier",
+          "summary",
+          "args_ref",
+          "requires_confirmation"
+        ],
+        "properties": {
+          "action_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "capability_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "action_type": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write_memory",
+              "edit_file",
+              "run_command",
+              "launch_mission",
+              "open_pr",
+              "publish",
+              "deploy",
+              "schedule",
+              "create_domain_chip",
+              "send_message",
+              "external_api_call",
+              "browser_action",
+              "computer_action"
+            ]
+          },
+          "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+          "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "args_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+          "requires_confirmation": { "type": "boolean" }
+        }
+      },
+      "default": []
+    },
+    "blocked_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route_id", "reason"],
+        "properties": {
+          "route_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "reason": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "evidence": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" }
+        }
+      },
+      "default": []
+    },
+    "context_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_private_text_in_context", "store_raw_turn", "summary_required"],
+      "properties": {
+        "raw_private_text_in_context": { "type": "boolean" },
+        "store_raw_turn": { "type": "boolean" },
+        "summary_required": { "type": "boolean" },
+        "offload_artifacts": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+          "default": []
+        }
+      }
+    },
+    "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "selected_move": { "const": "execute_action" } },
+        "required": ["selected_move"]
+      },
+      "then": {
+        "properties": {
+          "action_authority": {
+            "properties": {
+              "state": { "const": "executable" },
+              "requires_human_confirmation": { "const": false }
+            }
+          },
+          "proposed_actions": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "selected_move": {
+            "enum": ["chat_explain", "chat_plan", "chat_compare", "chat_score", "chat_draft_text"]
+          }
+        },
+        "required": ["selected_move"]
+      },
+      "then": {
+        "properties": {
+          "action_authority": {
+            "properties": {
+              "state": { "enum": ["none", "chat_only", "blocked"] },
+              "risk_tier": { "enum": ["none", "read"] },
+              "requires_human_confirmation": { "const": false }
+            }
+          },
+          "proposed_actions": { "maxItems": 0 }
+        }
+      }
+    }
+  ]
+}
+

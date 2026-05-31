@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/resource-registry-v1.schema.json",
+  "title": "Spark Resource Registry V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "registry_id", "created_at", "resources"],
+  "properties": {
+    "schema_version": { "const": "resource-registry-v1" },
+    "registry_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_id",
+          "resource_type",
+          "owner_repo",
+          "lifecycle_state",
+          "version",
+          "authority_scope",
+          "tests",
+          "lineage"
+        ],
+        "properties": {
+          "resource_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "resource_type": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "agent",
+              "subagent",
+              "tool",
+              "environment",
+              "memory_store",
+              "surface_adapter",
+              "harness_spec",
+              "eval_pack",
+              "startup_policy",
+              "surface_rule",
+              "model_profile",
+              "hook"
+            ]
+          },
+          "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "lifecycle_state": {
+            "type": "string",
+            "enum": ["draft", "active", "quarantined", "deprecated", "archived"]
+          },
+          "version": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "authority_scope": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+            "default": []
+          },
+          "tests": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+            "minItems": 1
+          },
+          "lineage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["created_from", "rollback_ref"],
+            "properties": {
+              "created_from": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+              "change_manifest_refs": {
+                "type": "array",
+                "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+                "default": []
+              },
+              "rollback_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/autonomy-policy-v1.schema.json",
+  "title": "Spark Autonomy Policy V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "created_at",
+    "scope",
+    "autonomy_level",
+    "risk_rules",
+    "allowlist",
+    "denylist",
+    "approval_rules",
+    "hooks",
+    "headless_defaults"
+  ],
+  "properties": {
+    "schema_version": { "const": "autonomy-policy-v1" },
+    "policy_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "scope": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+      "minItems": 1
+    },
+    "autonomy_level": {
+      "type": "string",
+      "enum": ["off", "low", "medium", "high"]
+    },
+    "risk_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["match", "risk_tier", "reason"],
+        "properties": {
+          "match": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+          "reason": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        }
+      },
+      "default": []
+    },
+    "allowlist": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "default": []
+    },
+    "denylist": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "default": []
+    },
+    "approval_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["risk_tier", "approval_required"],
+        "properties": {
+          "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+          "approval_required": { "type": "boolean" }
+        }
+      },
+      "minItems": 1
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hook_id", "event", "required"],
+        "properties": {
+          "hook_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "event": {
+            "type": "string",
+            "enum": [
+              "session_start",
+              "user_prompt_submit",
+              "pre_tool",
+              "post_tool",
+              "pre_compact",
+              "stop",
+              "session_end"
+            ]
+          },
+          "required": { "type": "boolean" }
+        }
+      },
+      "default": []
+    },
+    "headless_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_only_by_default", "requires_explicit_autonomy"],
+      "properties": {
+        "read_only_by_default": { "type": "boolean" },
+        "requires_explicit_autonomy": { "type": "boolean" }
+      }
+    }
+  }
+}
+

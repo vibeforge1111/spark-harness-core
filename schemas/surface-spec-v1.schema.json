@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/surface-spec-v1.schema.json",
+  "title": "Spark Surface Spec V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "spec_id",
+    "surface",
+    "runtime_charter_ref",
+    "contracts",
+    "roles",
+    "stages",
+    "adapters",
+    "state_semantics",
+    "failure_taxonomy",
+    "permission_model",
+    "evidence_requirements",
+    "stop_rules"
+  ],
+  "properties": {
+    "schema_version": { "const": "surface-spec-v1" },
+    "spec_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "runtime_charter_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "inputs", "outputs", "validation_gates", "retry_rules", "stop_rules"],
+        "properties": {
+          "name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "inputs": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          },
+          "outputs": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          },
+          "validation_gates": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          },
+          "retry_rules": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          },
+          "stop_rules": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "responsibilities", "tool_scope"],
+        "properties": {
+          "name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "responsibilities": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+            "minItems": 1
+          },
+          "tool_scope": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "purpose", "entry_conditions", "exit_conditions"],
+        "properties": {
+          "name": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "purpose": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "entry_conditions": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          },
+          "exit_conditions": {
+            "type": "array",
+            "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "adapters": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+      "default": []
+    },
+    "state_semantics": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "failure_taxonomy": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "permission_model": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "evidence_requirements": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "stop_rules": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    }
+  }
+}
+

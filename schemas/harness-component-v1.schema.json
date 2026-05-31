@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/harness-component-v1.schema.json",
+  "title": "Spark Harness Component V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "component_id",
+    "component_type",
+    "owner_repo",
+    "path",
+    "summary",
+    "editable_by_evolution",
+    "authority_scope",
+    "tests"
+  ],
+  "properties": {
+    "schema_version": { "const": "harness-component-v1" },
+    "component_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "component_type": {
+      "type": "string",
+      "enum": [
+        "system_prompt",
+        "tool_description",
+        "tool_implementation",
+        "middleware",
+        "skill",
+        "subagent_config",
+        "long_term_memory",
+        "authority_policy",
+        "surface_spec",
+        "hook",
+        "verifier",
+        "benchmark",
+        "model_config",
+        "resource_registry",
+        "experience_index",
+        "kernel_code"
+      ]
+    },
+    "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "path": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "summary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "editable_by_evolution": { "type": "boolean" },
+    "authority_scope": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+      "default": []
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+      "default": []
+    },
+    "tests": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "minItems": 1
+    },
+    "rollback_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
+  }
+}
+
