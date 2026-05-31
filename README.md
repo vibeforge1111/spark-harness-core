@@ -15,6 +15,12 @@ model proposes -> Governor decides -> lifecycle executes -> ledger records -> ev
 - Tests proving the contracts load, validate, and reject important authority failures.
 - Documentation mapping the research and pasted notes into Spark's implementation plan.
 
+## Core Docs
+
+- [Runtime Charter](docs/RUNTIME_CHARTER.md)
+- [Telegram First Integration Plan](docs/TELEGRAM_FIRST_INTEGRATION_PLAN.md)
+- [Kernel Schema Design](docs/SPARK_GENESIS_KERNEL_SCHEMA_DESIGN.md)
+
 ## First Principle
 
 Words alone never trigger action. Raw language can create evidence and proposals; only a validated `TurnIntentEnvelopeVNext` plus `AuthorizationDecisionV1` can authorize high-agency execution.
