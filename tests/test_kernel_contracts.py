@@ -273,14 +273,20 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(result.reason_codes, ())
         self.assertIsNotNone(result.turn_intent_envelope_vnext)
         self.assertIsNotNone(result.authorization_decision)
+        self.assertIsNotNone(result.tool_call_ledger)
         assert result.turn_intent_envelope_vnext is not None
         assert result.authorization_decision is not None
+        assert result.tool_call_ledger is not None
         self.assertEqual(result.turn_intent_envelope_vnext["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(result.turn_intent_envelope_vnext["selected_move"], "execute_action")
         self.assertEqual(result.authorization_decision["schema_version"], "authorization-decision-v1")
         self.assertEqual(result.authorization_decision["verdict"], "allow")
+        self.assertEqual(result.tool_call_ledger["schema_version"], "tool-call-ledger-v1")
+        self.assertEqual(result.tool_call_ledger["result"]["status"], "not_started")
+        self.assertEqual(result.tool_call_ledger["authorization"]["decision_id"], result.authorization_decision["decision_id"])
         validate_instance("turn-intent-envelope-vnext", result.turn_intent_envelope_vnext)
         validate_instance("authorization-decision-v1", result.authorization_decision)
+        validate_instance("tool-call-ledger-v1", result.tool_call_ledger)
 
     def test_read_current_state_authorizes_read_action(self) -> None:
         kernel = HarnessKernel(surface="builder")
@@ -318,7 +324,10 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(result.verdict, "blocked")
         self.assertIn("write_memory_not_authorized", result.reason_codes)
         assert result.authorization_decision is not None
+        assert result.tool_call_ledger is not None
         self.assertEqual(result.authorization_decision["verdict"], "deny")
+        self.assertEqual(result.tool_call_ledger["authorization"]["verdict"], "deny")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][1]["verdict"], "failed")
 
     def test_legacy_turn_intent_tuple_api_uses_shared_core(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(no_execution=True))

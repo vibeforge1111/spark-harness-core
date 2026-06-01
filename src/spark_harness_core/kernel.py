@@ -255,6 +255,23 @@ class HarnessKernel:
         output_path: str,
         summary: str,
     ) -> dict[str, Any]:
+        authorization_verdict = str(authorization.get("verdict") or "")
+        if authorization_verdict == "allow":
+            authorize_stage_verdict = "passed"
+        elif authorization_verdict == "interrupt":
+            authorize_stage_verdict = "pending"
+        else:
+            authorize_stage_verdict = "failed"
+
+        if status == "not_started":
+            execute_stage_verdict = "skipped"
+        elif status in {"success", "partial"}:
+            execute_stage_verdict = "passed"
+        elif status == "rolled_back":
+            execute_stage_verdict = "failed"
+        else:
+            execute_stage_verdict = "failed"
+
         ledger = {
             "schema_version": "tool-call-ledger-v1",
             "ledger_id": _id("ledger"),
@@ -265,8 +282,8 @@ class HarnessKernel:
             "tool_name": tool_name,
             "lifecycle": [
                 {"stage": "propose", "at": envelope["created_at"], "verdict": "passed"},
-                {"stage": "authorize", "at": authorization["created_at"], "verdict": "passed"},
-                {"stage": "execute", "at": _now(), "verdict": "passed" if status == "success" else "failed"},
+                {"stage": "authorize", "at": authorization["created_at"], "verdict": authorize_stage_verdict},
+                {"stage": "execute", "at": _now(), "verdict": execute_stage_verdict},
             ],
             "authorization": authorization,
             "arguments": {

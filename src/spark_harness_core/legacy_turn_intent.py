@@ -131,6 +131,7 @@ class LegacyToolAuthorization:
     turn_intent_envelope_vnext: dict[str, Any] | None
     proposed_action: dict[str, Any] | None
     authorization_decision: dict[str, Any] | None
+    tool_call_ledger: dict[str, Any] | None
 
 
 def _require_dict(value: Any, field: str) -> dict[str, Any]:
@@ -447,7 +448,7 @@ def authorize_legacy_tool_call(
     external_network: bool = False,
 ) -> LegacyToolAuthorization:
     if envelope is None:
-        return LegacyToolAuthorization("blocked", ("missing_or_invalid_envelope",), None, None, None)
+        return LegacyToolAuthorization("blocked", ("missing_or_invalid_envelope",), None, None, None, None)
 
     kernel = HarnessKernel(surface=_surface(envelope.surface), actor_id_ref=envelope.session_scope.user_ref)
     reasons = _policy_reasons(
@@ -484,10 +485,30 @@ def authorize_legacy_tool_call(
     decision = kernel.authorize(vnext, action, approval_ref=approval_ref)
     if reasons:
         decision = _deny_decision(decision, reasons)
+    ledger = kernel.record_tool_call(
+        envelope=vnext,
+        action=action,
+        authorization=decision,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=f"builder://turns/{_safe_id('turn', envelope.turn_id)}/tool-ledgers/{_safe_id('tool', tool_name)}",
+        summary=(
+            "Tool call authorized and awaiting execution."
+            if decision["verdict"] == "allow"
+            else "Tool call blocked by Harness Core authorization."
+        ),
+    )
 
     if decision["verdict"] == "allow":
-        return LegacyToolAuthorization("allowed", (), vnext, action, decision)
-    return LegacyToolAuthorization("blocked", tuple(str(reason) for reason in decision["reasons"]), vnext, action, decision)
+        return LegacyToolAuthorization("allowed", (), vnext, action, decision, ledger)
+    return LegacyToolAuthorization(
+        "blocked",
+        tuple(str(reason) for reason in decision["reasons"]),
+        vnext,
+        action,
+        decision,
+        ledger,
+    )
 
 
 def authorize_tool_call(
