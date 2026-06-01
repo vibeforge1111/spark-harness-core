@@ -15,6 +15,7 @@ from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
     authorize_vnext_tool_call,
+    build_vnext_action_intent_envelope,
     build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
@@ -373,6 +374,52 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(result.verdict, "allowed")
         self.assertEqual(result.reason_codes, ())
+
+    def test_builds_native_vnext_action_intent_for_voice_status_and_speak(self) -> None:
+        envelope = build_vnext_action_intent_envelope(
+            surface="cli",
+            actor_id_ref="human:local-operator",
+            request_id="req-voice-local-operator",
+            source_kind="local_operator_harness_execute",
+            intent_summary="Local operator explicitly asked Spark to speak through voice I/O.",
+            raw_turn_summary="Local voice task summarized without raw private text.",
+            actions=[
+                {
+                    "tool_name": "voice.status",
+                    "owner_system": "spark-voice-comms",
+                    "mutation_class": "read_only",
+                },
+                {
+                    "tool_name": "voice.speak",
+                    "owner_system": "spark-voice-comms",
+                    "mutation_class": "external_network",
+                    "external_network": True,
+                },
+            ],
+        )
+
+        validate_instance("turn-intent-envelope-vnext", envelope)
+        self.assertEqual(envelope["selected_move"], "execute_action")
+        self.assertEqual(envelope["action_authority"]["state"], "executable")
+        self.assertEqual(envelope["action_authority"]["risk_tier"], "medium")
+        self.assertEqual(len(envelope["proposed_actions"]), 2)
+
+        status = authorize_vnext_tool_call(
+            envelope,
+            tool_name="voice.status",
+            owner_system="spark-voice-comms",
+            mutation_class="read_only",
+        )
+        speak = authorize_vnext_tool_call(
+            envelope,
+            tool_name="voice.speak",
+            owner_system="spark-voice-comms",
+            mutation_class="external_network",
+            external_network=True,
+        )
+
+        self.assertEqual(status.verdict, "allowed")
+        self.assertEqual(speak.verdict, "allowed")
 
     def test_legacy_turn_intent_adapter_blocks_execution_policy_mismatch(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(can_write_memory=False))

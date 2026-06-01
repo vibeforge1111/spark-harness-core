@@ -56,6 +56,15 @@ _SURFACES = frozenset(
     }
 )
 
+_RISK_ORDER = {
+    "none": 0,
+    "read": 1,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+    "critical": 5,
+}
+
 
 @dataclass(frozen=True)
 class HarnessDirective:
@@ -381,17 +390,89 @@ def build_vnext_tool_intent_envelope(
 ) -> dict[str, Any]:
     """Build a native VNext envelope for an already-detected tool intent."""
 
-    if mutation_class not in _MUTATION_CLASSES:
-        raise ValueError(f"Unsupported mutation class: {mutation_class}")
-
-    surface_name = _surface(surface)
-    action_type = _action_type(mutation_class, publishes, external_network)
-    risk_tier = _risk_tier(mutation_class, publishes, external_network)
-    confirmation_required = (
-        risk_tier in {"high", "critical"} if requires_confirmation is None else bool(requires_confirmation)
+    return build_vnext_action_intent_envelope(
+        surface=surface,
+        actor_id_ref=actor_id_ref,
+        request_id=request_id,
+        source_kind=source_kind,
+        intent_summary=intent_summary,
+        raw_turn_summary=raw_turn_summary,
+        confidence=confidence,
+        actions=[
+            {
+                "tool_name": tool_name,
+                "owner_system": owner_system,
+                "mutation_class": mutation_class,
+                "publishes": publishes,
+                "external_network": external_network,
+                "requires_confirmation": requires_confirmation,
+                "args_path": args_path,
+            }
+        ],
     )
 
-    if action_type == "read":
+
+def build_vnext_action_intent_envelope(
+    *,
+    surface: str,
+    actor_id_ref: str,
+    request_id: str,
+    source_kind: str,
+    intent_summary: str,
+    raw_turn_summary: str,
+    actions: list[dict[str, Any]],
+    confidence: float = 0.95,
+) -> dict[str, Any]:
+    """Build a native VNext envelope for one fresh intent with one or more tool actions."""
+
+    if not actions:
+        raise ValueError("At least one action is required for a VNext action envelope.")
+
+    surface_name = _surface(surface)
+    kernel = HarnessKernel(surface=surface_name, actor_id_ref=actor_id_ref or "human:redacted")
+    safe_request_id = _safe_id("turn", request_id or f"{surface_name}:{source_kind}")
+    proposed_actions: list[dict[str, Any]] = []
+    risk_tiers: list[str] = []
+    confirmation_required = False
+
+    for item in actions:
+        tool_name = str(item.get("tool_name") or "").strip()
+        owner_system = str(item.get("owner_system") or "").strip()
+        mutation_class = str(item.get("mutation_class") or "").strip()
+        publishes = bool(item.get("publishes"))
+        external_network = bool(item.get("external_network"))
+        if mutation_class not in _MUTATION_CLASSES:
+            raise ValueError(f"Unsupported mutation class: {mutation_class}")
+        if not tool_name:
+            raise ValueError("tool_name is required for each VNext action.")
+        if not owner_system:
+            raise ValueError("owner_system is required for each VNext action.")
+
+        action_type = _action_type(mutation_class, publishes, external_network)
+        risk_tier = _risk_tier(mutation_class, publishes, external_network)
+        action_confirmation = (
+            risk_tier in {"high", "critical"}
+            if item.get("requires_confirmation") is None
+            else bool(item.get("requires_confirmation"))
+        )
+        risk_tiers.append(risk_tier)
+        confirmation_required = confirmation_required or action_confirmation
+        proposed_actions.append(
+            kernel.proposed_action(
+                capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+                action_type=action_type,
+                risk_tier=risk_tier,
+                summary=str(item.get("summary") or f"{owner_system} proposed {action_type} via {tool_name}."),
+                args_path=str(
+                    item.get("args_path")
+                    or f"{surface_name}://turns/{safe_request_id}/actions/{_safe_id('tool', tool_name)}"
+                ),
+                requires_confirmation=action_confirmation,
+            )
+        )
+
+    envelope_risk = max(risk_tiers, key=lambda risk: _RISK_ORDER.get(risk, 0))
+    if all(action["action_type"] == "read" for action in proposed_actions):
         selected_move = "read_current_state"
         authority_state = "read_only"
         confirmation_required = False
@@ -402,17 +483,6 @@ def build_vnext_tool_intent_envelope(
         selected_move = "execute_action"
         authority_state = "executable"
 
-    kernel = HarnessKernel(surface=surface_name, actor_id_ref=actor_id_ref or "human:redacted")
-    safe_request_id = _safe_id("turn", request_id or f"{surface_name}:{source_kind}:{tool_name}")
-    action = kernel.proposed_action(
-        capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
-        action_type=action_type,
-        risk_tier=risk_tier,
-        summary=f"{owner_system} proposed {action_type} via {tool_name}.",
-        args_path=args_path
-        or f"{surface_name}://turns/{safe_request_id}/actions/{_safe_id('tool', tool_name)}",
-        requires_confirmation=confirmation_required,
-    )
     turn_trace = trace_ref(
         "fresh_turn",
         raw_turn_summary or f"Fresh {surface_name} turn summarized by {source_kind}.",
@@ -426,8 +496,8 @@ def build_vnext_tool_intent_envelope(
     )
     route_evidence = evidence_ref(
         "route_candidate",
-        owner_system,
-        f"{tool_name} was proposed by {source_kind}.",
+        source_kind,
+        f"{len(proposed_actions)} action(s) were proposed by {source_kind}.",
         confidence=confidence,
     )
     fresh_evidence["trace_refs"] = [turn_trace]
@@ -435,12 +505,12 @@ def build_vnext_tool_intent_envelope(
 
     return kernel.create_envelope(
         selected_move=selected_move,
-        intent_summary=intent_summary or f"Fresh {surface_name} user intent selected {tool_name}.",
+        intent_summary=intent_summary or f"Fresh {surface_name} user intent selected governed tool action.",
         raw_turn_summary=raw_turn_summary or f"Fresh {surface_name} turn summarized by {source_kind}.",
         evidence=[fresh_evidence, route_evidence],
-        proposed_actions=[action],
+        proposed_actions=proposed_actions,
         authority_state=authority_state,
-        risk_tier=risk_tier,
+        risk_tier=envelope_risk,
         confidence=confidence,
         requires_human_confirmation=confirmation_required,
     )
