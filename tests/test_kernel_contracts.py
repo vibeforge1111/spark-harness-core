@@ -117,6 +117,55 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(decision["verdict"], "interrupt")
         self.assertTrue(decision["approval"]["required"])
 
+    def test_authorization_sets_browser_action_restrictions_from_confirmation_boundary(self) -> None:
+        kernel = HarnessKernel(surface="cli")
+        read_action = kernel.proposed_action(
+            capability_id="capability:browser-use",
+            action_type="browser_action",
+            risk_tier="read",
+            summary="Open a page and read visible state.",
+            args_path="experience/private/browser-read-args.json",
+            requires_confirmation=False,
+        )
+        read_envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark CLI to inspect a page.",
+            raw_turn_summary="spark browser-use open https://example.com",
+            proposed_actions=[read_action],
+            authority_state="executable",
+            risk_tier="read",
+            confidence=0.95,
+        )
+        read_decision = kernel.authorize(read_envelope, read_action)
+        self.assertTrue(read_decision["restrictions"]["network_allowed"])
+        self.assertFalse(read_decision["restrictions"]["write_allowed"])
+
+        task_action = kernel.proposed_action(
+            capability_id="capability:browser-use",
+            action_type="browser_action",
+            risk_tier="high",
+            summary="Run a browser agent task that may interact with a page.",
+            args_path="experience/private/browser-task-args.json",
+            requires_confirmation=True,
+        )
+        task_envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark CLI to run a browser-use agent task.",
+            raw_turn_summary="spark browser-use task review the page",
+            proposed_actions=[task_action],
+            authority_state="executable",
+            risk_tier="high",
+            confidence=0.96,
+        )
+        task_decision = kernel.authorize(
+            task_envelope,
+            task_action,
+            approval_ref=sample_evidence("human_confirmation"),
+        )
+        self.assertEqual(task_decision["verdict"], "allow")
+        self.assertTrue(task_decision["restrictions"]["network_allowed"])
+        self.assertTrue(task_decision["restrictions"]["write_allowed"])
+
     def test_tool_ledger_requires_authorized_lifecycle(self) -> None:
         kernel = HarnessKernel(surface="cli")
         action = kernel.proposed_action(

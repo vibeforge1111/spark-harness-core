@@ -78,6 +78,32 @@ READINESS_CATEGORIES = (
 )
 
 PROTECTED_EVOLUTION_COMPONENTS = frozenset({"verifier", "benchmark", "model_config", "authority_policy"})
+NETWORK_ACTION_TYPES = frozenset(
+    {
+        "run_command",
+        "launch_mission",
+        "open_pr",
+        "publish",
+        "deploy",
+        "send_message",
+        "external_api_call",
+        "browser_action",
+    }
+)
+WRITE_ACTION_TYPES = frozenset(
+    {
+        "write_memory",
+        "edit_file",
+        "launch_mission",
+        "open_pr",
+        "publish",
+        "deploy",
+        "schedule",
+        "create_domain_chip",
+        "send_message",
+        "computer_action",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -212,11 +238,7 @@ class HarnessKernel:
             "reasons": reasons,
             "evidence": envelope["evidence"],
             "approval": approval,
-            "restrictions": {
-                "network_allowed": False,
-                "write_allowed": action["action_type"] in {"edit_file", "write_memory"},
-                "publish_allowed": False,
-            },
+            "restrictions": self._restrictions_for_action(action),
             "trace": trace_ref("authorization", "Authorization decision created by Spark Harness Core."),
         }
         return validate_instance("authorization-decision-v1", decision)
@@ -534,3 +556,14 @@ class HarnessKernel:
         if selected_move == "execute_action" and actions:
             return "executable"
         return "none"
+
+    @staticmethod
+    def _restrictions_for_action(action: dict[str, Any]) -> dict[str, bool]:
+        action_type = str(action.get("action_type") or "")
+        requires_confirmation = bool(action.get("requires_confirmation"))
+        return {
+            "network_allowed": action_type in NETWORK_ACTION_TYPES,
+            "write_allowed": action_type in WRITE_ACTION_TYPES
+            or (action_type == "browser_action" and requires_confirmation),
+            "publish_allowed": action_type in {"publish", "deploy", "open_pr"},
+        }
