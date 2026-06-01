@@ -278,6 +278,30 @@ export interface ChangeManifestV1 {
     observed_delta: HarnessCoreMetric[];
     verdict: 'draft' | 'accepted' | 'rejected' | 'rolled_back' | 'needs_more_evidence';
 }
+export interface SelfEvolutionRunV1 {
+    schema_version: 'self-evolution-run-v1';
+    evolution_id: string;
+    created_at: string;
+    mode: 'observe' | 'propose' | 'sandbox' | 'live_qa' | 'promote' | 'rollback';
+    roles: {
+        harness_scientist: string;
+        surface_operator: string;
+        verifier: string;
+    };
+    experience_index: ExperienceIndexV1;
+    target_components: HarnessComponentV1[];
+    change_manifests: ChangeManifestV1[];
+    test_plan: {
+        evaluation_packs: EvaluationPackV1[];
+        live_surface_required: boolean;
+        commands: string[];
+    };
+    promotion_decision: {
+        verdict: 'not_ready' | 'promote_private' | 'promote_release_candidate' | 'rollback';
+        summary: string;
+        readiness_score: ReadinessScoreV1;
+    };
+}
 export type HarnessCoreActionMutationClass = 'none' | 'read_only' | 'writes_memory' | 'writes_files' | 'launches_mission' | 'controls_mission' | 'creates_schedule' | 'deletes_schedule' | 'creates_chip' | 'publishes' | 'external_network';
 export declare const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>>;
 export declare function safeHarnessCoreId(prefix: string, raw: string): string;
@@ -381,3 +405,18 @@ export declare function createHarnessCoreChangeManifest(input: {
     verdict?: ChangeManifestV1['verdict'];
     human_approval_ref?: HarnessCoreEvidenceRef;
 }): ChangeManifestV1;
+export declare function createHarnessCoreSelfEvolutionRun(input: {
+    id: string;
+    mode: SelfEvolutionRunV1['mode'];
+    surface: HarnessCoreSurface;
+    experience_index: ExperienceIndexV1;
+    readiness_score: ReadinessScoreV1;
+    commands: string[];
+    target_components?: HarnessComponentV1[];
+    change_manifests?: ChangeManifestV1[];
+    evaluation_packs?: EvaluationPackV1[];
+    verdict?: SelfEvolutionRunV1['promotion_decision']['verdict'];
+    summary?: string;
+    roles?: Partial<SelfEvolutionRunV1['roles']>;
+    live_surface_required?: boolean;
+}): SelfEvolutionRunV1;

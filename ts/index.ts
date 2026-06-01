@@ -440,6 +440,31 @@ export interface ChangeManifestV1 {
   verdict: 'draft' | 'accepted' | 'rejected' | 'rolled_back' | 'needs_more_evidence';
 }
 
+export interface SelfEvolutionRunV1 {
+  schema_version: 'self-evolution-run-v1';
+  evolution_id: string;
+  created_at: string;
+  mode: 'observe' | 'propose' | 'sandbox' | 'live_qa' | 'promote' | 'rollback';
+  roles: {
+    harness_scientist: string;
+    surface_operator: string;
+    verifier: string;
+  };
+  experience_index: ExperienceIndexV1;
+  target_components: HarnessComponentV1[];
+  change_manifests: ChangeManifestV1[];
+  test_plan: {
+    evaluation_packs: EvaluationPackV1[];
+    live_surface_required: boolean;
+    commands: string[];
+  };
+  promotion_decision: {
+    verdict: 'not_ready' | 'promote_private' | 'promote_release_candidate' | 'rollback';
+    summary: string;
+    readiness_score: ReadinessScoreV1;
+  };
+}
+
 export type HarnessCoreActionMutationClass =
   | 'none'
   | 'read_only'
@@ -836,6 +861,13 @@ const PROTECTED_HARNESS_COMPONENT_TYPES = new Set<HarnessComponentV1['component_
   'authority_policy'
 ]);
 
+const HARNESS_CORE_READINESS_STATUS_RANK: Readonly<Record<ReadinessScoreV1['overall']['status'], number>> = Object.freeze({
+  blocked: 0,
+  private_ready: 1,
+  release_candidate: 2,
+  public_ready: 3
+});
+
 export function createHarnessCoreChangeManifest(input: {
   id: string;
   target_component: HarnessComponentV1;
@@ -871,4 +903,107 @@ export function createHarnessCoreChangeManifest(input: {
     observed_delta: input.observed_delta || [],
     verdict: input.verdict || 'draft'
   };
+}
+
+export function createHarnessCoreSelfEvolutionRun(input: {
+  id: string;
+  mode: SelfEvolutionRunV1['mode'];
+  surface: HarnessCoreSurface;
+  experience_index: ExperienceIndexV1;
+  readiness_score: ReadinessScoreV1;
+  commands: string[];
+  target_components?: HarnessComponentV1[];
+  change_manifests?: ChangeManifestV1[];
+  evaluation_packs?: EvaluationPackV1[];
+  verdict?: SelfEvolutionRunV1['promotion_decision']['verdict'];
+  summary?: string;
+  roles?: Partial<SelfEvolutionRunV1['roles']>;
+  live_surface_required?: boolean;
+}): SelfEvolutionRunV1 {
+  const verdict = input.verdict || 'not_ready';
+  const manifests = input.change_manifests || [];
+  const components = input.target_components || [];
+  const liveSurfaceRequired = input.live_surface_required ?? false;
+  assertHarnessCoreSelfEvolutionPolicy({
+    mode: input.mode,
+    verdict,
+    readiness_score: input.readiness_score,
+    target_components: components,
+    change_manifests: manifests,
+    live_surface_required: liveSurfaceRequired
+  });
+  return {
+    schema_version: 'self-evolution-run-v1',
+    evolution_id: safeHarnessCoreId('evolution', input.id),
+    created_at: new Date().toISOString(),
+    mode: input.mode,
+    roles: {
+      harness_scientist: input.roles?.harness_scientist || 'spark-harness-core',
+      surface_operator: input.roles?.surface_operator || input.surface,
+      verifier: input.roles?.verifier || 'spark-harness-core'
+    },
+    experience_index: input.experience_index,
+    target_components: components,
+    change_manifests: manifests,
+    test_plan: {
+      evaluation_packs: input.evaluation_packs || [],
+      live_surface_required: liveSurfaceRequired,
+      commands: input.commands
+    },
+    promotion_decision: {
+      verdict,
+      summary: input.summary || 'Self-evolution run recorded by Spark Harness Core.',
+      readiness_score: input.readiness_score
+    }
+  };
+}
+
+function assertHarnessCoreSelfEvolutionPolicy(input: {
+  mode: SelfEvolutionRunV1['mode'];
+  verdict: SelfEvolutionRunV1['promotion_decision']['verdict'];
+  readiness_score: ReadinessScoreV1;
+  target_components: HarnessComponentV1[];
+  change_manifests: ChangeManifestV1[];
+  live_surface_required: boolean;
+}): void {
+  if (input.mode === 'observe' && input.verdict !== 'not_ready') {
+    throw new Error('observe mode cannot promote or roll back changes');
+  }
+  if (input.verdict === 'promote_private' || input.verdict === 'promote_release_candidate') {
+    if (input.change_manifests.length === 0) {
+      throw new Error('self-evolution promotion requires at least one accepted change manifest');
+    }
+    const nonAccepted = input.change_manifests
+      .filter((manifest) => manifest.verdict !== 'accepted')
+      .map((manifest) => manifest.change_id);
+    if (nonAccepted.length > 0) {
+      throw new Error(`self-evolution promotion requires accepted change manifests; not accepted: ${nonAccepted.join(', ')}`);
+    }
+    if (input.live_surface_required || input.change_manifests.some((manifest) => manifest.live_proof_required)) {
+      throw new Error('self-evolution promotion cannot proceed while live proof is still required');
+    }
+    const requiredStatus = input.verdict === 'promote_private' ? 'private_ready' : 'release_candidate';
+    const readinessStatus = input.readiness_score.overall.status;
+    if (HARNESS_CORE_READINESS_STATUS_RANK[readinessStatus] < HARNESS_CORE_READINESS_STATUS_RANK[requiredStatus]) {
+      throw new Error(`self-evolution ${input.verdict} requires readiness status ${requiredStatus} or better; got ${readinessStatus}`);
+    }
+  }
+  if (input.verdict === 'rollback') {
+    if (input.mode !== 'rollback') {
+      throw new Error('rollback verdict requires rollback mode');
+    }
+    if (!input.change_manifests.some((manifest) => manifest.verdict === 'rolled_back')) {
+      throw new Error('rollback verdict requires at least one rolled_back change manifest');
+    }
+  }
+  const approvedComponentIds = new Set(
+    input.change_manifests
+      .filter((manifest) => Boolean(manifest.human_approval_ref))
+      .map((manifest) => manifest.target_component.component_id)
+  );
+  for (const component of input.target_components) {
+    if (PROTECTED_HARNESS_COMPONENT_TYPES.has(component.component_type) && !approvedComponentIds.has(component.component_id)) {
+      throw new Error(`protected self-evolution component ${component.component_id} requires approval evidence`);
+    }
+  }
 }

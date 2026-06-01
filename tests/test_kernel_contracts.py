@@ -705,6 +705,152 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(evolution["promotion_decision"]["verdict"], "not_ready")
 
+    def test_self_evolution_promotion_requires_accepted_manifest_and_readiness(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.9
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="repo",
+            target_id="repo:spark-harness-core",
+            owner_repo="spark-harness-core",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index(
+            entries=[
+                kernel.experience_entry(
+                    entry_type="test_result",
+                    summary="Self-evolution policy tests passed.",
+                    artifact=artifact_ref("test_result", "experience/self-evolution-policy.json", "Policy proof."),
+                    tags=["self_evolution", "policy"],
+                )
+            ]
+        )
+        component = kernel.component(
+            component_id="component:surface-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/harnessCore.ts",
+            summary="Surface adapter under self-evolution.",
+            tests=["npm test"],
+        )
+        draft_manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="A surface adapter needs stronger Harness Core records.",
+            edit_summary="Route the adapter through canonical Harness Core records.",
+            predicted_fixes=["High-agency actions emit envelope, authorization, and ledger records."],
+            predicted_regression_risks=["Under-specified actions may now be rejected."],
+            required_tests=["npm test"],
+            rollback_plan="Revert the adapter change.",
+        )
+
+        with self.assertRaises(ValueError):
+            kernel.self_evolution_run(
+                mode="promote",
+                experience_index=experience,
+                readiness_score=readiness,
+                commands=["npm test"],
+                target_components=[component],
+                change_manifests=[],
+                verdict="promote_private",
+            )
+        with self.assertRaises(ValueError):
+            kernel.self_evolution_run(
+                mode="promote",
+                experience_index=experience,
+                readiness_score=readiness,
+                commands=["npm test"],
+                target_components=[component],
+                change_manifests=[draft_manifest],
+                verdict="promote_private",
+            )
+
+        accepted_manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="A surface adapter needs stronger Harness Core records.",
+            edit_summary="Route the adapter through canonical Harness Core records.",
+            predicted_fixes=["High-agency actions emit envelope, authorization, and ledger records."],
+            predicted_regression_risks=["Under-specified actions may now be rejected."],
+            required_tests=["npm test"],
+            rollback_plan="Revert the adapter change.",
+            observed_delta=[kernel.metric(name="route_matrix_pass", value=True)],
+            verdict="accepted",
+        )
+        promoted = kernel.self_evolution_run(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["npm test"],
+            target_components=[component],
+            change_manifests=[accepted_manifest],
+            verdict="promote_private",
+            summary="Accepted adapter change is ready for private promotion.",
+        )
+        self.assertEqual(promoted["promotion_decision"]["verdict"], "promote_private")
+
+    def test_self_evolution_promotion_blocks_when_live_proof_is_still_required(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.92
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index()
+        component = kernel.component(
+            component_id="component:telegram-live-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/index.ts",
+            summary="Telegram live adapter under self-evolution.",
+            tests=["npm test"],
+        )
+        manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="Live Telegram routing proof is required before release.",
+            edit_summary="Prepare live Telegram proof wiring.",
+            predicted_fixes=["Live replies emit Harness Core evidence."],
+            predicted_regression_risks=["Live proof could reveal route drift."],
+            required_tests=["npm test"],
+            rollback_plan="Revert the live proof wiring.",
+            live_proof_required=True,
+            verdict="accepted",
+        )
+
+        with self.assertRaises(ValueError):
+            kernel.self_evolution_run(
+                mode="promote",
+                experience_index=experience,
+                readiness_score=readiness,
+                commands=["npm test"],
+                target_components=[component],
+                change_manifests=[manifest],
+                verdict="promote_release_candidate",
+                live_surface_required=True,
+            )
+
     def test_kernel_builds_evaluation_pack_and_harness_run_records(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         prompt = artifact_ref("prompt", "eval/prompts/telegram-meta-build.txt", "Redacted Telegram prompt.")

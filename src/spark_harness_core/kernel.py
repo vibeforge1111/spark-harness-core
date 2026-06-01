@@ -79,6 +79,13 @@ READINESS_CATEGORIES = (
 )
 
 PROTECTED_EVOLUTION_COMPONENTS = frozenset({"verifier", "benchmark", "model_config", "authority_policy"})
+PROMOTION_VERDICTS = frozenset({"promote_private", "promote_release_candidate"})
+READINESS_STATUS_RANK = {
+    "blocked": 0,
+    "private_ready": 1,
+    "release_candidate": 2,
+    "public_ready": 3,
+}
 NETWORK_ACTION_TYPES = frozenset(
     {
         "run_command",
@@ -652,6 +659,17 @@ class HarnessKernel:
         roles: dict[str, str] | None = None,
         live_surface_required: bool = False,
     ) -> dict[str, Any]:
+        manifests = change_manifests or []
+        components = target_components or []
+        packs = evaluation_packs or []
+        self._validate_self_evolution_policy(
+            mode=mode,
+            verdict=verdict,
+            readiness_score=readiness_score,
+            target_components=components,
+            change_manifests=manifests,
+            live_surface_required=live_surface_required,
+        )
         record = {
             "schema_version": "self-evolution-run-v1",
             "evolution_id": _id("evolution"),
@@ -664,10 +682,10 @@ class HarnessKernel:
                 "verifier": "spark-harness-core",
             },
             "experience_index": experience_index,
-            "target_components": target_components or [],
-            "change_manifests": change_manifests or [],
+            "target_components": components,
+            "change_manifests": manifests,
             "test_plan": {
-                "evaluation_packs": evaluation_packs or [],
+                "evaluation_packs": packs,
                 "live_surface_required": live_surface_required,
                 "commands": commands,
             },
@@ -678,6 +696,59 @@ class HarnessKernel:
             },
         }
         return validate_instance("self-evolution-run-v1", record)
+
+    def _validate_self_evolution_policy(
+        self,
+        *,
+        mode: str,
+        verdict: str,
+        readiness_score: dict[str, Any],
+        target_components: list[dict[str, Any]],
+        change_manifests: list[dict[str, Any]],
+        live_surface_required: bool,
+    ) -> None:
+        if mode == "observe" and verdict != "not_ready":
+            raise ValueError("observe mode cannot promote or roll back changes.")
+        if verdict in PROMOTION_VERDICTS:
+            if not change_manifests:
+                raise ValueError("self-evolution promotion requires at least one accepted change manifest.")
+            non_accepted = [
+                str(manifest.get("change_id") or "change:unknown")
+                for manifest in change_manifests
+                if manifest.get("verdict") != "accepted"
+            ]
+            if non_accepted:
+                raise ValueError(
+                    "self-evolution promotion requires accepted change manifests; "
+                    f"not accepted: {', '.join(non_accepted)}"
+                )
+            if live_surface_required or any(bool(manifest.get("live_proof_required")) for manifest in change_manifests):
+                raise ValueError("self-evolution promotion cannot proceed while live proof is still required.")
+            required_status = "private_ready" if verdict == "promote_private" else "release_candidate"
+            readiness_status = str(readiness_score.get("overall", {}).get("status") or "blocked")
+            if READINESS_STATUS_RANK.get(readiness_status, 0) < READINESS_STATUS_RANK[required_status]:
+                raise ValueError(
+                    f"self-evolution {verdict} requires readiness status {required_status} or better; "
+                    f"got {readiness_status}."
+                )
+        if verdict == "rollback":
+            if mode != "rollback":
+                raise ValueError("rollback verdict requires rollback mode.")
+            if not any(manifest.get("verdict") == "rolled_back" for manifest in change_manifests):
+                raise ValueError("rollback verdict requires at least one rolled_back change manifest.")
+
+        approved_component_ids = {
+            str(manifest.get("target_component", {}).get("component_id"))
+            for manifest in change_manifests
+            if manifest.get("human_approval_ref") is not None
+        }
+        for component in target_components:
+            component_type = str(component.get("component_type") or "")
+            component_id = str(component.get("component_id") or "")
+            if component_type in PROTECTED_EVOLUTION_COMPONENTS and component_id not in approved_component_ids:
+                raise ValueError(
+                    f"protected self-evolution component {component_id or component_type} requires approval evidence."
+                )
 
     @staticmethod
     def _default_authority_state(selected_move: str, actions: list[dict[str, Any]]) -> str:

@@ -129,6 +129,48 @@ class TypeScriptContractTests(unittest.TestCase):
               live_proof_required: true,
               rollback_plan: 'Revert the adapter change.'
             });
+            const acceptedManifest = core.createHarnessCoreChangeManifest({
+              id: 'telegram-evidence-adapter-accepted-change',
+              target_component: component,
+              failure_evidence: [evidence],
+              root_cause_hypothesis: 'Telegram needs a canonical evidence adapter.',
+              edit_summary: 'Route through Harness Core records.',
+              predicted_fixes: ['High-agency Telegram actions use Harness Core authority.'],
+              predicted_regression_risks: ['Under-specified actions may now be rejected.'],
+              required_tests: ['npm test'],
+              live_proof_required: false,
+              rollback_plan: 'Revert the adapter change.',
+              observed_delta: [{ name: 'route_matrix_pass', value: true }],
+              verdict: 'accepted'
+            });
+            let blockedPromotion = '';
+            try {
+              core.createHarnessCoreSelfEvolutionRun({
+                id: 'blocked-evolution',
+                mode: 'promote',
+                surface: 'telegram',
+                experience_index: experience,
+                readiness_score: readiness,
+                commands: ['npm test'],
+                target_components: [component],
+                change_manifests: [manifest],
+                verdict: 'promote_private'
+              });
+            } catch (error) {
+              blockedPromotion = error instanceof Error ? error.message : String(error);
+            }
+            const selfEvolution = core.createHarnessCoreSelfEvolutionRun({
+              id: 'telegram-evidence-evolution',
+              mode: 'promote',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['npm test'],
+              target_components: [component],
+              change_manifests: [acceptedManifest],
+              verdict: 'promote_private',
+              summary: 'Accepted Telegram adapter change is ready for private promotion.'
+            });
             const envelope = core.createHarnessCoreActionEnvelopeVNext({
               surface: 'spawner',
               ownerSystem: 'spawner-ui',
@@ -150,6 +192,9 @@ class TypeScriptContractTests(unittest.TestCase):
               evaluation,
               run,
               manifest,
+              acceptedManifest,
+              blockedPromotion,
+              selfEvolution,
               envelope
             }));
             """
@@ -176,6 +221,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["run"]["verdict"]["status"], "passed")
         self.assertEqual(payload["manifest"]["schema_version"], "change-manifest-v1")
         self.assertTrue(payload["manifest"]["live_proof_required"])
+        self.assertEqual(payload["acceptedManifest"]["verdict"], "accepted")
+        self.assertIn("accepted change manifests", payload["blockedPromotion"])
+        self.assertEqual(payload["selfEvolution"]["schema_version"], "self-evolution-run-v1")
+        self.assertEqual(payload["selfEvolution"]["promotion_decision"]["verdict"], "promote_private")
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")
