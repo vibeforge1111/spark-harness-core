@@ -531,6 +531,94 @@ def authorize_tool_call(
     return authorization.verdict, authorization.reason_codes
 
 
+def _matching_vnext_action(
+    envelope: dict[str, Any],
+    *,
+    expected_capability_id: str,
+    expected_action_type: str,
+) -> dict[str, Any] | None:
+    for action in envelope.get("proposed_actions") or []:
+        if not isinstance(action, dict):
+            continue
+        if action.get("capability_id") == expected_capability_id and action.get("action_type") == expected_action_type:
+            return action
+    return None
+
+
+def authorize_vnext_tool_call(
+    envelope_payload: dict[str, Any] | None,
+    *,
+    tool_name: str,
+    owner_system: str,
+    mutation_class: MutationClass,
+    publishes: bool = False,
+    external_network: bool = False,
+) -> LegacyToolAuthorization:
+    if not isinstance(envelope_payload, dict):
+        return LegacyToolAuthorization("blocked", ("missing_or_invalid_envelope",), None, None, None, None)
+    try:
+        envelope = validate_instance("turn-intent-envelope-vnext", envelope_payload)
+    except Exception:
+        return LegacyToolAuthorization("blocked", ("missing_or_invalid_envelope",), None, None, None, None)
+
+    kernel = HarnessKernel(
+        surface=_surface(str(envelope.get("surface") or "future_surface")),
+        actor_id_ref=str((envelope.get("actor") or {}).get("id_ref") or "human:redacted"),
+    )
+    expected_action_type = _action_type(mutation_class, publishes, external_network)
+    expected_capability_id = _safe_id("capability", f"{owner_system}:{tool_name}")
+    action = _matching_vnext_action(
+        envelope,
+        expected_capability_id=expected_capability_id,
+        expected_action_type=expected_action_type,
+    )
+    reasons: list[str] = []
+    freshness = envelope.get("freshness") if isinstance(envelope.get("freshness"), dict) else {}
+    if not freshness.get("fresh_user_intent_present"):
+        reasons.append("fresh_user_intent_missing")
+    if action is None:
+        reasons.append("proposed_action_not_authorized")
+        action = kernel.proposed_action(
+            capability_id=expected_capability_id,
+            action_type=expected_action_type,
+            risk_tier=_risk_tier(mutation_class, publishes, external_network),
+            summary=f"Builder bridge expected {expected_action_type} via {tool_name}.",
+            args_path=f"builder://vnext/actions/{_safe_id('tool', tool_name)}",
+            requires_confirmation=False,
+        )
+
+    approval_ref = None
+    authority = envelope.get("action_authority") if isinstance(envelope.get("action_authority"), dict) else {}
+    if isinstance(authority.get("confirmation_ref"), dict):
+        approval_ref = authority.get("confirmation_ref")
+    decision = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    if reasons:
+        decision = _deny_decision(decision, tuple(reasons))
+    ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=decision,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}/tool-ledgers/{_safe_id('tool', tool_name)}",
+        summary=(
+            "Tool call authorized and awaiting execution."
+            if decision["verdict"] == "allow"
+            else "Tool call blocked by Harness Core authorization."
+        ),
+    )
+    if decision["verdict"] == "allow":
+        return LegacyToolAuthorization("allowed", (), envelope, action, decision, ledger)
+    return LegacyToolAuthorization(
+        "blocked",
+        tuple(str(reason) for reason in decision["reasons"]),
+        envelope,
+        action,
+        decision,
+        ledger,
+    )
+
+
 def finalize_legacy_tool_call_ledger(
     ledger: dict[str, Any],
     *,

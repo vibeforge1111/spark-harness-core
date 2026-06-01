@@ -14,6 +14,7 @@ from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_re
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
+    authorize_vnext_tool_call,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
 )
@@ -354,6 +355,55 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(final_ledger["lifecycle"][-1]["stage"], "execute")
         self.assertEqual(final_ledger["lifecycle"][-1]["verdict"], "passed")
         validate_instance("tool-call-ledger-v1", final_ledger)
+
+    def test_authorizes_native_vnext_tool_call(self) -> None:
+        legacy = parse_turn_intent_envelope(legacy_envelope_payload())
+        converted = authorize_legacy_tool_call(
+            legacy,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert converted.turn_intent_envelope_vnext is not None
+
+        result = authorize_vnext_tool_call(
+            converted.turn_intent_envelope_vnext,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "allowed")
+        self.assertEqual(result.reason_codes, ())
+        self.assertIsNotNone(result.turn_intent_envelope_vnext)
+        self.assertIsNotNone(result.authorization_decision)
+        self.assertIsNotNone(result.tool_call_ledger)
+        assert result.authorization_decision is not None
+        assert result.tool_call_ledger is not None
+        self.assertEqual(result.authorization_decision["verdict"], "allow")
+        self.assertEqual(result.tool_call_ledger["authorization"]["decision_id"], result.authorization_decision["decision_id"])
+
+    def test_blocks_native_vnext_without_matching_proposed_action(self) -> None:
+        legacy = parse_turn_intent_envelope(legacy_envelope_payload())
+        converted = authorize_legacy_tool_call(
+            legacy,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert converted.turn_intent_envelope_vnext is not None
+
+        result = authorize_vnext_tool_call(
+            converted.turn_intent_envelope_vnext,
+            tool_name="memory.read",
+            owner_system="domain-chip-memory",
+            mutation_class="read_only",
+        )
+
+        self.assertEqual(result.verdict, "blocked")
+        self.assertIn("proposed_action_not_authorized", result.reason_codes)
+        assert result.authorization_decision is not None
+        self.assertEqual(result.authorization_decision["verdict"], "deny")
 
     def test_legacy_turn_intent_tuple_api_uses_shared_core(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(no_execution=True))
