@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -263,14 +264,7 @@ class HarnessKernel:
         else:
             authorize_stage_verdict = "failed"
 
-        if status == "not_started":
-            execute_stage_verdict = "skipped"
-        elif status in {"success", "partial"}:
-            execute_stage_verdict = "passed"
-        elif status == "rolled_back":
-            execute_stage_verdict = "failed"
-        else:
-            execute_stage_verdict = "failed"
+        execute_stage_verdict = self._execute_verdict_for_status(status)
 
         ledger = {
             "schema_version": "tool-call-ledger-v1",
@@ -299,6 +293,38 @@ class HarnessKernel:
             "trace": trace_ref("tool_call", f"Ledger for {tool_name}."),
         }
         return validate_instance("tool-call-ledger-v1", ledger)
+
+    def finalize_tool_call_ledger(
+        self,
+        ledger: dict[str, Any],
+        *,
+        status: str,
+        output_path: str,
+        summary: str,
+        error_path: str | None = None,
+        rollback_path: str | None = None,
+    ) -> dict[str, Any]:
+        validate_instance("tool-call-ledger-v1", ledger)
+        updated = deepcopy(ledger)
+        execute_stage = {"stage": "execute", "at": _now(), "verdict": self._execute_verdict_for_status(status)}
+        lifecycle = [dict(item) for item in updated.get("lifecycle", [])]
+        if lifecycle and lifecycle[-1].get("stage") == "execute":
+            lifecycle[-1] = execute_stage
+        else:
+            lifecycle.append(execute_stage)
+        result = {
+            "status": status,
+            "summary": summary,
+            "sanitized_output_ref": artifact_ref("tool_output", output_path, summary),
+        }
+        if error_path:
+            result["error_ref"] = artifact_ref("tool_error", error_path, "Sanitized tool error reference.")
+        if rollback_path:
+            result["rollback_ref"] = artifact_ref("rollback", rollback_path, "Tool rollback reference.")
+        updated["lifecycle"] = lifecycle
+        updated["result"] = result
+        updated["trace"] = trace_ref("tool_call", f"Final ledger for {updated['tool_name']}.")
+        return validate_instance("tool-call-ledger-v1", updated)
 
     def component(
         self,
@@ -574,6 +600,14 @@ class HarnessKernel:
         if selected_move == "execute_action" and actions:
             return "executable"
         return "none"
+
+    @staticmethod
+    def _execute_verdict_for_status(status: str) -> str:
+        if status == "not_started":
+            return "skipped"
+        if status in {"success", "partial"}:
+            return "passed"
+        return "failed"
 
     @staticmethod
     def _restrictions_for_action(action: dict[str, Any]) -> dict[str, bool]:

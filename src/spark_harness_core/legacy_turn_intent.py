@@ -529,3 +529,24 @@ def authorize_tool_call(
         external_network=external_network,
     )
     return authorization.verdict, authorization.reason_codes
+
+
+def finalize_legacy_tool_call_ledger(
+    ledger: dict[str, Any],
+    *,
+    status: str,
+    output_path: str,
+    summary: str,
+    surface: str = "builder",
+    error_path: str | None = None,
+    rollback_path: str | None = None,
+) -> dict[str, Any]:
+    kernel = HarnessKernel(surface=_surface(surface))
+    return kernel.finalize_tool_call_ledger(
+        ledger,
+        status=status,
+        output_path=output_path,
+        summary=summary,
+        error_path=error_path,
+        rollback_path=rollback_path,
+    )

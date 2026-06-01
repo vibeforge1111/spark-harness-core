@@ -14,6 +14,7 @@ from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_re
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
+    finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
 )
 from spark_harness_core.cli import _parse_category_score, _parse_gate, main as cli_main
@@ -328,6 +329,31 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(result.authorization_decision["verdict"], "deny")
         self.assertEqual(result.tool_call_ledger["authorization"]["verdict"], "deny")
         self.assertEqual(result.tool_call_ledger["lifecycle"][1]["verdict"], "failed")
+
+    def test_finalizes_legacy_tool_call_ledger_after_execution(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload())
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert result.tool_call_ledger is not None
+
+        final_ledger = finalize_legacy_tool_call_ledger(
+            result.tool_call_ledger,
+            status="success",
+            output_path="builder://turns/turn-test/results/memory-write",
+            summary="Memory write completed.",
+            surface="telegram",
+        )
+
+        self.assertEqual(final_ledger["ledger_id"], result.tool_call_ledger["ledger_id"])
+        self.assertEqual(final_ledger["result"]["status"], "success")
+        self.assertEqual(final_ledger["result"]["summary"], "Memory write completed.")
+        self.assertEqual(final_ledger["lifecycle"][-1]["stage"], "execute")
+        self.assertEqual(final_ledger["lifecycle"][-1]["verdict"], "passed")
+        validate_instance("tool-call-ledger-v1", final_ledger)
 
     def test_legacy_turn_intent_tuple_api_uses_shared_core(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(no_execution=True))

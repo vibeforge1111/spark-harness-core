@@ -12,6 +12,7 @@ from spark_harness_core.legacy_turn_intent import (
     TurnIntentEnvelope,
     authorize_legacy_tool_call,
     authorize_tool_call,
+    finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
 )
 from spark_harness_core.schemas import SchemaValidationError, load_schema, validate_instance
@@ -26,6 +27,7 @@ __all__ = [
     "authorize_legacy_tool_call",
     "authorize_tool_call",
     "evidence_ref",
+    "finalize_legacy_tool_call_ledger",
     "load_schema",
     "parse_turn_intent_envelope",
     "trace_ref",
