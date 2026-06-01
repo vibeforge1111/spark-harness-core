@@ -210,7 +210,8 @@ class HarnessKernel:
         validate_instance("turn-intent-envelope-vnext", envelope)
         risk = action["risk_tier"]
         executable = envelope["action_authority"]["state"] == "executable"
-        if not executable:
+        read_only_authorized = envelope["action_authority"]["state"] == "read_only" and action.get("action_type") == "read"
+        if not executable and not read_only_authorized:
             verdict = "deny"
             approval = {"required": False, "status": "not_required"}
             reasons = ["Envelope is not executable; raw words or proposals cannot run tools."]

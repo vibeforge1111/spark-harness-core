@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, evidence_ref
+from spark_harness_core.legacy_turn_intent import (
+    authorize_legacy_tool_call,
+    authorize_tool_call,
+    parse_turn_intent_envelope,
+)
 from spark_harness_core.cli import _parse_category_score, _parse_gate, main as cli_main
 from spark_harness_core.schemas import check_all_schemas, load_schema, validate_instance
 
@@ -36,6 +41,64 @@ def sample_component(component_type: str = "middleware") -> dict:
 
 def sample_evidence(kind: str = "test_result") -> dict:
     return evidence_ref(kind, "tests", "Schema regression evidence.", confidence=0.91)
+
+
+def legacy_envelope_payload(*, no_execution: bool = False, can_write_memory: bool = True) -> dict:
+    return {
+        "schema": "spark.turn_intent.v1",
+        "turnId": "turn:test",
+        "traceId": "trace:test",
+        "surface": "telegram",
+        "directive": {
+            "mode": "execute" if not no_execution else "answer",
+            "noExecution": no_execution,
+            "noPublish": True,
+            "localOnly": True,
+            "explanationOnly": no_execution,
+            "quotedOrMetaLanguage": no_execution,
+        },
+        "selectedIntent": {
+            "kind": "memory_action",
+            "ownerSystem": "domain-chip-memory",
+            "action": "memory.write",
+            "confidence": "explicit",
+            "requiresConfirmation": False,
+            "source": "explicit",
+        },
+        "sessionScope": {
+            "sessionKey": "telegram:dm:chat:user",
+            "surface": "telegram",
+            "conversationKind": "dm",
+            "userRef": "user:test",
+            "chatRef": "chat:test",
+            "memoryLoadPolicy": "bounded",
+            "pendingStateScope": "fresh_turn",
+        },
+        "toolPolicy": {
+            "allowedTools": ["answer.compose", "memory.write"],
+            "deniedTools": [],
+            "enabledToolsets": ["spark-harness-core", "domain-chip-memory"],
+            "mutationClassesAllowed": ["none", "read_only", "writes_memory"],
+            "requiresApprovalFor": [],
+            "networkPolicy": "none",
+            "elevatedAllowed": False,
+        },
+        "executionPolicy": {
+            "canMutateFiles": False,
+            "canLaunchMission": False,
+            "canWriteMemory": can_write_memory,
+            "canDeleteSchedule": False,
+            "canCreateChip": False,
+            "canPublish": False,
+            "canUseExternalNetwork": False,
+        },
+        "threatDefense": {
+            "reasonCodes": [
+                "fresh_user_turn_is_authority",
+                "telegram_memory_adapter_explicit_intent",
+            ]
+        },
+    }
 
 
 class KernelContractTests(unittest.TestCase):
@@ -196,6 +259,106 @@ class KernelContractTests(unittest.TestCase):
             summary="Unit tests passed.",
         )
         self.assertEqual(ledger["result"]["status"], "success")
+
+    def test_legacy_turn_intent_adapter_emits_vnext_authorization(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload())
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "allowed")
+        self.assertEqual(result.reason_codes, ())
+        self.assertIsNotNone(result.turn_intent_envelope_vnext)
+        self.assertIsNotNone(result.authorization_decision)
+        assert result.turn_intent_envelope_vnext is not None
+        assert result.authorization_decision is not None
+        self.assertEqual(result.turn_intent_envelope_vnext["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(result.turn_intent_envelope_vnext["selected_move"], "execute_action")
+        self.assertEqual(result.authorization_decision["schema_version"], "authorization-decision-v1")
+        self.assertEqual(result.authorization_decision["verdict"], "allow")
+        validate_instance("turn-intent-envelope-vnext", result.turn_intent_envelope_vnext)
+        validate_instance("authorization-decision-v1", result.authorization_decision)
+
+    def test_read_current_state_authorizes_read_action(self) -> None:
+        kernel = HarnessKernel(surface="builder")
+        action = kernel.proposed_action(
+            capability_id="capability:memory-read",
+            action_type="read",
+            risk_tier="read",
+            summary="Read bounded current memory state.",
+            args_path="experience/private/memory-read-args.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="read_current_state",
+            intent_summary="User explicitly asked to inspect current memory state.",
+            raw_turn_summary="What is my current plan?",
+            proposed_actions=[action],
+            authority_state="read_only",
+            risk_tier="read",
+            confidence=0.93,
+        )
+        decision = kernel.authorize(envelope, action)
+
+        self.assertEqual(decision["verdict"], "allow")
+        self.assertFalse(decision["restrictions"]["write_allowed"])
+
+    def test_legacy_turn_intent_adapter_blocks_execution_policy_mismatch(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload(can_write_memory=False))
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "blocked")
+        self.assertIn("write_memory_not_authorized", result.reason_codes)
+        assert result.authorization_decision is not None
+        self.assertEqual(result.authorization_decision["verdict"], "deny")
+
+    def test_legacy_turn_intent_tuple_api_uses_shared_core(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload(no_execution=True))
+        verdict, reasons = authorize_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(verdict, "blocked")
+        self.assertIn("no_execution_boundary", reasons)
+
+    def test_explicit_legacy_publish_approves_high_risk_action(self) -> None:
+        payload = legacy_envelope_payload()
+        payload["selectedIntent"]["ownerSystem"] = "spark-swarm"
+        payload["selectedIntent"]["kind"] = "swarm_action"
+        payload["selectedIntent"]["action"] = "swarm.upgrade.deliver"
+        payload["directive"]["noPublish"] = False
+        payload["toolPolicy"]["allowedTools"] = ["answer.compose", "swarm.upgrade.deliver"]
+        payload["toolPolicy"]["enabledToolsets"] = ["spark-harness-core", "spark-swarm"]
+        payload["toolPolicy"]["mutationClassesAllowed"] = ["none", "read_only", "external_network"]
+        payload["toolPolicy"]["networkPolicy"] = "external"
+        payload["executionPolicy"]["canWriteMemory"] = False
+        payload["executionPolicy"]["canPublish"] = True
+        payload["executionPolicy"]["canUseExternalNetwork"] = True
+        envelope = parse_turn_intent_envelope(payload)
+
+        authorization = authorize_legacy_tool_call(
+            envelope,
+            tool_name="swarm.upgrade.deliver",
+            owner_system="spark-swarm",
+            mutation_class="external_network",
+            external_network=True,
+            publishes=True,
+        )
+
+        self.assertEqual(authorization.verdict, "allowed")
+        assert authorization.authorization_decision is not None
+        self.assertEqual(authorization.authorization_decision["approval"]["status"], "approved")
 
     def test_change_manifest_requires_approval_for_authority_policy_edits(self) -> None:
         manifest = {
