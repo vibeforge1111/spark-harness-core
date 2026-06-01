@@ -27,7 +27,7 @@ ports = []
 routes = []
 
 [healthcheck]
-command = "PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas"
+command = "python3 -c \"import sys; sys.path.insert(0, 'src'); from spark_harness_core.schemas import check_all_schemas; check_all_schemas(); print('spark-harness-core ok')\""
 timeout_seconds = 20
 success_hint = "Spark Harness Core schemas and authority kernel CLI are importable."
 failure_hint = "Run `PYTHONPATH=src python3 -m unittest discover -s tests` in spark-harness-core for detail."
