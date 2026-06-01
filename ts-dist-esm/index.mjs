@@ -243,3 +243,72 @@ export function createHarnessCoreResourceRegistry(input) {
         resources: input.resources
     };
 }
+export function createHarnessCoreEvaluationPack(input) {
+    return {
+        schema_version: 'evaluation-pack-v1',
+        pack_id: safeHarnessCoreId('evaluation-pack', input.id),
+        created_at: new Date().toISOString(),
+        scope: input.scope,
+        cases: input.cases,
+        metrics: input.metrics,
+        jury: {
+            blind: input.jury?.blind ?? true,
+            judge_count: input.jury?.judge_count ?? 3,
+            rubric_ref: input.jury?.rubric_ref ||
+                createHarnessCoreArtifactRef({
+                    id: `${input.id}:rubric`,
+                    kind: 'rubric',
+                    path_or_uri: 'eval/rubric.md',
+                    summary: 'Evaluation rubric reference.'
+                })
+        },
+        promotion_rules: input.promotion_rules
+    };
+}
+export function createHarnessCoreHarnessRun(input) {
+    return {
+        schema_version: 'harness-run-v1',
+        run_id: safeHarnessCoreId('harness-run', input.id),
+        created_at: new Date().toISOString(),
+        run_type: input.run_type,
+        surface: input.surface,
+        model_refs: input.model_refs,
+        envelopes: input.envelopes || [],
+        tool_ledgers: input.tool_ledgers || [],
+        artifacts: input.artifacts || [],
+        metrics: input.metrics || [],
+        verdict: {
+            status: input.status,
+            summary: input.summary,
+            ...(input.remaining_risks ? { remaining_risks: input.remaining_risks } : {})
+        }
+    };
+}
+const PROTECTED_HARNESS_COMPONENT_TYPES = new Set([
+    'verifier',
+    'benchmark',
+    'model_config',
+    'authority_policy'
+]);
+export function createHarnessCoreChangeManifest(input) {
+    if (PROTECTED_HARNESS_COMPONENT_TYPES.has(input.target_component.component_type) && !input.human_approval_ref) {
+        throw new Error('protected Harness Core components require explicit human approval evidence');
+    }
+    return {
+        schema_version: 'change-manifest-v1',
+        change_id: safeHarnessCoreId('change', input.id),
+        created_at: new Date().toISOString(),
+        target_component: input.target_component,
+        failure_evidence: input.failure_evidence,
+        root_cause_hypothesis: input.root_cause_hypothesis,
+        edit_summary: input.edit_summary,
+        predicted_fixes: input.predicted_fixes,
+        predicted_regression_risks: input.predicted_regression_risks,
+        required_tests: input.required_tests,
+        live_proof_required: input.live_proof_required,
+        ...(input.human_approval_ref ? { human_approval_ref: input.human_approval_ref } : {}),
+        rollback_plan: input.rollback_plan,
+        observed_delta: input.observed_delta || [],
+        verdict: input.verdict || 'draft'
+    };
+}

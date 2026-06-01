@@ -705,6 +705,39 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(evolution["promotion_decision"]["verdict"], "not_ready")
 
+    def test_kernel_builds_evaluation_pack_and_harness_run_records(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        prompt = artifact_ref("prompt", "eval/prompts/telegram-meta-build.txt", "Redacted Telegram prompt.")
+        case = kernel.evaluation_case(
+            case_id="case:telegram-meta-build",
+            case_type="negative_intent",
+            prompt_ref=prompt,
+            expected_move="chat_explain",
+            expected_authority_state="chat_only",
+        )
+        pack = kernel.evaluation_pack(
+            scope=["telegram"],
+            cases=[case],
+            metrics=[
+                kernel.metric(name="route_pass", value=True),
+                kernel.metric(name="latency_ms", value=1200, unit="ms", higher_is_better=False),
+            ],
+            promotion_rules=["Words alone must not authorize launch_mission."],
+        )
+        self.assertEqual(pack["cases"][0]["expected_authority_state"], "chat_only")
+        validate_instance("evaluation-pack-v1", pack)
+
+        run = kernel.harness_run(
+            run_type="route_matrix",
+            model_refs=["model:gpt-5.5"],
+            artifacts=[artifact_ref("test_result", "experience/telegram-420.json", "420-case route matrix.")],
+            metrics=[kernel.metric(name="case_count", value=420)],
+            status="passed",
+            summary="Telegram route matrix passed through Harness Core authority records.",
+        )
+        self.assertEqual(run["verdict"]["status"], "passed")
+        validate_instance("harness-run-v1", run)
+
     def test_kernel_change_manifest_enforces_protected_component_approval(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
         protected_component = kernel.component(
@@ -744,6 +777,9 @@ class KernelContractTests(unittest.TestCase):
         commands = (
             ("resource-registry", "resource-registry-v1"),
             ("experience-index", "experience-index-v1"),
+            ("evaluation-pack", "evaluation-pack-v1"),
+            ("harness-run --status passed --summary harness-run-proof", "harness-run-v1"),
+            ("change-manifest", "change-manifest-v1"),
             (
                 "readiness-score --category execution=1 --category tools=1 --category context=1 "
                 "--category lifecycle=1 --category observability=1 --category verification=1 "

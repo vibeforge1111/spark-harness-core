@@ -205,6 +205,79 @@ export interface ResourceRegistryV1 {
         };
     }>;
 }
+export interface HarnessCoreMetric {
+    name: string;
+    value: number | boolean | string;
+    unit?: string;
+    higher_is_better?: boolean;
+}
+export interface EvaluationPackV1 {
+    schema_version: 'evaluation-pack-v1';
+    pack_id: string;
+    created_at: string;
+    scope: HarnessCoreSurface[];
+    cases: Array<{
+        case_id: string;
+        case_type: 'negative_intent' | 'positive_action' | 'mixed_intent' | 'stale_context' | 'pending_state' | 'startup_quality' | 'tool_lifecycle' | 'live_surface' | 'regression' | 'latency_cost';
+        prompt_ref: HarnessCoreArtifactRef;
+        expected_move: HarnessCoreMoveType;
+        expected_authority_state: HarnessCoreAuthorityState;
+    }>;
+    metrics: HarnessCoreMetric[];
+    jury: {
+        blind: boolean;
+        judge_count: number;
+        rubric_ref: HarnessCoreArtifactRef;
+    };
+    promotion_rules: string[];
+}
+export interface HarnessRunV1 {
+    schema_version: 'harness-run-v1';
+    run_id: string;
+    created_at: string;
+    run_type: 'single_turn' | 'route_matrix' | 'live_surface_qa' | 'startup_benchmark' | 'blind_jury' | 'mission' | 'readiness_scan' | 'self_evolution' | 'release_gate';
+    surface: HarnessCoreSurface;
+    model_refs: string[];
+    envelopes: TurnIntentEnvelopeVNext[];
+    tool_ledgers: ToolCallLedgerV1[];
+    artifacts: HarnessCoreArtifactRef[];
+    metrics: HarnessCoreMetric[];
+    verdict: {
+        status: 'passed' | 'failed' | 'blocked' | 'inconclusive';
+        summary: string;
+        remaining_risks?: string[];
+    };
+}
+export interface HarnessComponentV1 {
+    schema_version: 'harness-component-v1';
+    component_id: string;
+    component_type: 'system_prompt' | 'tool_description' | 'tool_implementation' | 'middleware' | 'skill' | 'subagent_config' | 'long_term_memory' | 'authority_policy' | 'surface_spec' | 'hook' | 'verifier' | 'benchmark' | 'model_config' | 'resource_registry' | 'experience_index' | 'kernel_code';
+    owner_repo: string;
+    path: string;
+    summary: string;
+    editable_by_evolution: boolean;
+    authority_scope: HarnessCoreSurface[];
+    dependencies: string[];
+    tests: string[];
+    rollback_ref?: HarnessCoreArtifactRef;
+}
+export interface ChangeManifestV1 {
+    schema_version: 'change-manifest-v1';
+    change_id: string;
+    created_at: string;
+    target_component: HarnessComponentV1;
+    failure_evidence: HarnessCoreEvidenceRef[];
+    root_cause_hypothesis: string;
+    edit_summary: string;
+    predicted_fixes: string[];
+    predicted_regression_risks: string[];
+    required_tests: string[];
+    live_proof_required: boolean;
+    human_approval_ref?: HarnessCoreEvidenceRef;
+    rollback_plan: string;
+    observed_delta: HarnessCoreMetric[];
+    verdict: 'draft' | 'accepted' | 'rejected' | 'rolled_back' | 'needs_more_evidence';
+}
 export type HarnessCoreActionMutationClass = 'none' | 'read_only' | 'writes_memory' | 'writes_files' | 'launches_mission' | 'controls_mission' | 'creates_schedule' | 'deletes_schedule' | 'creates_chip' | 'publishes' | 'external_network';
 export declare const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>>;
 export declare function safeHarnessCoreId(prefix: string, raw: string): string;
@@ -272,3 +345,39 @@ export declare function createHarnessCoreResourceRegistry(input: {
     id: string;
     resources: ResourceRegistryV1['resources'];
 }): ResourceRegistryV1;
+export declare function createHarnessCoreEvaluationPack(input: {
+    id: string;
+    scope: HarnessCoreSurface[];
+    cases: EvaluationPackV1['cases'];
+    metrics: HarnessCoreMetric[];
+    promotion_rules: string[];
+    jury?: Partial<EvaluationPackV1['jury']>;
+}): EvaluationPackV1;
+export declare function createHarnessCoreHarnessRun(input: {
+    id: string;
+    run_type: HarnessRunV1['run_type'];
+    surface: HarnessCoreSurface;
+    model_refs: string[];
+    envelopes?: TurnIntentEnvelopeVNext[];
+    tool_ledgers?: ToolCallLedgerV1[];
+    artifacts?: HarnessCoreArtifactRef[];
+    metrics?: HarnessCoreMetric[];
+    status: HarnessRunV1['verdict']['status'];
+    summary: string;
+    remaining_risks?: string[];
+}): HarnessRunV1;
+export declare function createHarnessCoreChangeManifest(input: {
+    id: string;
+    target_component: HarnessComponentV1;
+    failure_evidence: HarnessCoreEvidenceRef[];
+    root_cause_hypothesis: string;
+    edit_summary: string;
+    predicted_fixes: string[];
+    predicted_regression_risks: string[];
+    required_tests: string[];
+    live_proof_required: boolean;
+    rollback_plan: string;
+    observed_delta?: HarnessCoreMetric[];
+    verdict?: ChangeManifestV1['verdict'];
+    human_approval_ref?: HarnessCoreEvidenceRef;
+}): ChangeManifestV1;

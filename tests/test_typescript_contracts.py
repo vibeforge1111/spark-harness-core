@@ -82,6 +82,53 @@ class TypeScriptContractTests(unittest.TestCase):
                 }
               }]
             });
+            const evaluation = core.createHarnessCoreEvaluationPack({
+              id: 'telegram-route-pack',
+              scope: ['telegram'],
+              cases: [{
+                case_id: 'case:telegram-meta-build',
+                case_type: 'negative_intent',
+                prompt_ref: artifact,
+                expected_move: 'chat_explain',
+                expected_authority_state: 'chat_only'
+              }],
+              metrics: [{ name: 'case_count', value: 1 }],
+              promotion_rules: ['Words alone must not authorize launch_mission.']
+            });
+            const run = core.createHarnessCoreHarnessRun({
+              id: 'telegram-route-run',
+              run_type: 'route_matrix',
+              surface: 'telegram',
+              model_refs: ['model:gpt-5.5'],
+              artifacts: [artifact],
+              metrics: [{ name: 'case_count', value: 1 }],
+              status: 'passed',
+              summary: 'Route matrix passed.'
+            });
+            const component = {
+              schema_version: 'harness-component-v1',
+              component_id: 'component:telegram-evidence-adapter',
+              component_type: 'middleware',
+              owner_repo: 'spark-telegram-bot',
+              path: 'src/harnessCore.ts',
+              summary: 'Telegram evidence adapter.',
+              editable_by_evolution: true,
+              authority_scope: ['telegram'],
+              dependencies: ['spark-harness-core'],
+              tests: ['npm test']
+            };
+            const manifest = core.createHarnessCoreChangeManifest({
+              id: 'telegram-evidence-adapter-change',
+              target_component: component,
+              failure_evidence: [evidence],
+              root_cause_hypothesis: 'Telegram needs a canonical evidence adapter.',
+              edit_summary: 'Route through Harness Core records.',
+              predicted_fixes: ['High-agency Telegram actions use Harness Core authority.'],
+              predicted_regression_risks: ['Under-specified actions may now be rejected.'],
+              required_tests: ['npm test'],
+              live_proof_required: true,
+              rollback_plan: 'Revert the adapter change.'
+            });
             const envelope = core.createHarnessCoreActionEnvelopeVNext({
               surface: 'spawner',
               ownerSystem: 'spawner-ui',
@@ -100,6 +147,9 @@ class TypeScriptContractTests(unittest.TestCase):
               readiness,
               experience,
               registry,
+              evaluation,
+              run,
+              manifest,
               envelope
             }));
             """
@@ -120,6 +170,12 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["readiness"]["overall"]["status"], "release_candidate")
         self.assertEqual(payload["experience"]["entries"][0]["entry_type"], "test_result")
         self.assertEqual(payload["registry"]["resources"][0]["resource_type"], "harness_spec")
+        self.assertEqual(payload["evaluation"]["schema_version"], "evaluation-pack-v1")
+        self.assertEqual(payload["evaluation"]["cases"][0]["expected_authority_state"], "chat_only")
+        self.assertEqual(payload["run"]["schema_version"], "harness-run-v1")
+        self.assertEqual(payload["run"]["verdict"]["status"], "passed")
+        self.assertEqual(payload["manifest"]["schema_version"], "change-manifest-v1")
+        self.assertTrue(payload["manifest"]["live_proof_required"])
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")

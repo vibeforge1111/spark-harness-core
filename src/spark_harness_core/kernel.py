@@ -445,6 +445,66 @@ class HarnessKernel:
         }
         return validate_instance("experience-index-v1", index)
 
+    def metric(
+        self,
+        *,
+        name: str,
+        value: int | float | bool | str,
+        unit: str | None = None,
+        higher_is_better: bool | None = None,
+    ) -> dict[str, Any]:
+        metric = {"name": name, "value": value}
+        if unit is not None:
+            metric["unit"] = unit
+        if higher_is_better is not None:
+            metric["higher_is_better"] = higher_is_better
+        return metric
+
+    def evaluation_case(
+        self,
+        *,
+        case_id: str,
+        case_type: str,
+        prompt_ref: dict[str, Any],
+        expected_move: str,
+        expected_authority_state: str,
+    ) -> dict[str, Any]:
+        return {
+            "case_id": case_id,
+            "case_type": case_type,
+            "prompt_ref": prompt_ref,
+            "expected_move": expected_move,
+            "expected_authority_state": expected_authority_state,
+        }
+
+    def evaluation_pack(
+        self,
+        *,
+        scope: list[str],
+        cases: list[dict[str, Any]],
+        metrics: list[dict[str, Any]],
+        promotion_rules: list[str],
+        blind: bool = True,
+        judge_count: int = 3,
+        rubric_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        pack = {
+            "schema_version": "evaluation-pack-v1",
+            "pack_id": _id("evaluation-pack"),
+            "created_at": _now(),
+            "scope": scope,
+            "cases": cases,
+            "metrics": metrics,
+            "jury": {
+                "blind": blind,
+                "judge_count": judge_count,
+                "rubric_ref": rubric_ref
+                or artifact_ref("rubric", "eval/rubric.md", "Evaluation rubric reference."),
+            },
+            "promotion_rules": promotion_rules,
+        }
+        return validate_instance("evaluation-pack-v1", pack)
+
     def readiness_score(
         self,
         *,
@@ -508,6 +568,38 @@ class HarnessKernel:
             },
         }
         return validate_instance("readiness-score-v1", readiness)
+
+    def harness_run(
+        self,
+        *,
+        run_type: str,
+        model_refs: list[str],
+        status: str,
+        summary: str,
+        envelopes: list[dict[str, Any]] | None = None,
+        tool_ledgers: list[dict[str, Any]] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        metrics: list[dict[str, Any]] | None = None,
+        remaining_risks: list[str] | None = None,
+    ) -> dict[str, Any]:
+        run = {
+            "schema_version": "harness-run-v1",
+            "run_id": _id("harness-run"),
+            "created_at": _now(),
+            "run_type": run_type,
+            "surface": self.surface,
+            "model_refs": model_refs,
+            "envelopes": envelopes or [],
+            "tool_ledgers": tool_ledgers or [],
+            "artifacts": artifacts or [],
+            "metrics": metrics or [],
+            "verdict": {
+                "status": status,
+                "summary": summary,
+                "remaining_risks": remaining_risks or [],
+            },
+        }
+        return validate_instance("harness-run-v1", run)
 
     def change_manifest(
         self,
