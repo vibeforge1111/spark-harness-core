@@ -299,6 +299,94 @@ export function createHarnessCoreGovernorDecision(input) {
         })
     };
 }
+export function createHarnessCoreAuthorizedGovernorDecision(input) {
+    const action = input.envelope.proposed_actions.find((candidate) => input.action_id
+        ? candidate.action_id === input.action_id
+        : input.capability_id
+            ? candidate.capability_id === input.capability_id
+            : true) || input.envelope.proposed_actions[0];
+    if (!action) {
+        return createHarnessCoreGovernorDecision({
+            envelope: input.envelope,
+            reply_style: input.reply_style,
+            reply_instruction: input.reply_instruction
+        });
+    }
+    const now = input.now || new Date().toISOString();
+    const trace = createHarnessCoreTraceRef({
+        id: `${input.envelope.turn_id}:${input.tool_name}:authorization`,
+        summary: `Governor authorization for ${input.tool_name}.`,
+        redaction_class: 'metadata_only'
+    });
+    const verdict = action.requires_confirmation ? 'interrupt' : 'allow';
+    const authorization = {
+        schema_version: 'authorization-decision-v1',
+        decision_id: safeHarnessCoreId('decision', `${input.envelope.turn_id}:${action.action_id}`),
+        created_at: now,
+        turn_id: input.envelope.turn_id,
+        action_id: action.action_id,
+        capability_id: action.capability_id,
+        verdict,
+        risk_tier: action.risk_tier,
+        reasons: input.reasons && input.reasons.length > 0
+            ? input.reasons
+            : action.requires_confirmation
+                ? ['harness_core_authorized', 'explicit_human_confirmation_required']
+                : ['harness_core_authorized'],
+        evidence: input.envelope.evidence,
+        approval: {
+            required: action.requires_confirmation,
+            status: action.requires_confirmation ? 'requested' : 'not_required'
+        },
+        restrictions: {
+            network_allowed: action.action_type === 'external_api_call' || action.action_type === 'browser_action' || action.action_type === 'computer_action',
+            write_allowed: !['read'].includes(action.action_type),
+            publish_allowed: action.action_type === 'publish',
+            ...(input.restrictions || {})
+        },
+        trace
+    };
+    const ledger = {
+        schema_version: 'tool-call-ledger-v1',
+        ledger_id: safeHarnessCoreId('ledger', `${input.envelope.turn_id}:${action.action_id}`),
+        created_at: now,
+        turn_id: input.envelope.turn_id,
+        action_id: action.action_id,
+        capability_id: action.capability_id,
+        tool_name: input.tool_name,
+        lifecycle: [
+            { stage: 'propose', at: input.envelope.created_at, verdict: 'passed', summary: 'Harness Core proposed the action.' },
+            { stage: 'validate', at: now, verdict: 'passed', summary: 'Harness Core validated the authority record.' },
+            { stage: 'authorize', at: now, verdict: action.requires_confirmation ? 'pending' : 'passed', summary: 'Governor authorization recorded before execution.' },
+            { stage: 'execute', at: now, verdict: 'pending', summary: 'Execution has not started yet.' }
+        ],
+        authorization,
+        arguments: {
+            schema_valid: true,
+            raw_ref: action.args_ref,
+            sanitized_ref: action.args_ref
+        },
+        result: {
+            status: 'not_started',
+            summary: 'Tool execution has not started yet.',
+            sanitized_output_ref: createHarnessCoreArtifactRef({
+                id: `${input.envelope.turn_id}:${action.action_id}:pending-output`,
+                kind: 'tool_output',
+                path_or_uri: `${input.envelope.surface}://actions/${encodeURIComponent(input.tool_name)}/${encodeURIComponent(input.envelope.turn_id)}/pending`,
+                summary: 'Pending tool output reference.',
+                redaction_class: 'metadata_only'
+            })
+        },
+        trace
+    };
+    return createHarnessCoreGovernorDecision({
+        envelope: input.envelope,
+        authorizations: [authorization],
+        tool_ledgers: [ledger],
+        reply_style: input.reply_style,
+        reply_instruction: input.reply_instruction
+    });
+}
 export function createHarnessCoreReadinessScore(input) {
     const values = Object.values(input.categories).map((category) => category.score);
     const score = values.length ? Number((values.reduce((sum, item) => sum + item, 0) / values.length).toFixed(4)) : 0;

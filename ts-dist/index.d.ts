@@ -467,6 +467,17 @@ export declare function createHarnessCoreGovernorDecision(input: {
     reply_style?: GovernorDecisionV1['reply_contract']['style'];
     reply_instruction?: string;
 }): GovernorDecisionV1;
+export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
+    envelope: TurnIntentEnvelopeVNext;
+    tool_name: string;
+    action_id?: string;
+    capability_id?: string;
+    reasons?: string[];
+    restrictions?: Partial<AuthorizationDecisionV1['restrictions']>;
+    reply_style?: GovernorDecisionV1['reply_contract']['style'];
+    reply_instruction?: string;
+    now?: string;
+}): GovernorDecisionV1;
 export declare function createHarnessCoreReadinessScore(input: {
     id: string;
     target_kind: ReadinessScoreV1['target']['kind'];

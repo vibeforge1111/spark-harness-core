@@ -250,6 +250,15 @@ class TypeScriptContractTests(unittest.TestCase):
               envelope,
               authorizations: [authorization]
             });
+            const authorizedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              restrictions: {
+                network_allowed: false,
+                write_allowed: true,
+                publish_allowed: false
+              }
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -266,7 +275,8 @@ class TypeScriptContractTests(unittest.TestCase):
               blockedPromotion,
               selfEvolution,
               envelope,
-              governorDecision
+              governorDecision,
+              authorizedGovernorDecision
             }));
             """
         )
@@ -311,6 +321,14 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["governorDecision"]["outcome"], "execute")
         self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
         self.assertEqual(payload["governorDecision"]["execution_boundary"]["authorized_action_count"], 1)
+        self.assertEqual(payload["authorizedGovernorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["authorizedGovernorDecision"]["outcome"], "execute")
+        self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["verdict"], "allow")
+        self.assertEqual(payload["authorizedGovernorDecision"]["tool_ledgers"][0]["tool_name"], "spawner.dispatch")
+        self.assertEqual(
+            payload["authorizedGovernorDecision"]["tool_ledgers"][0]["authorization"]["capability_id"],
+            "capability:spawner-ui:spawner.dispatch",
+        )
 
     def test_esm_package_face_exports_action_envelope_helper(self) -> None:
         script = textwrap.dedent(
