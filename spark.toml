@@ -26,5 +26,11 @@ secrets = []
 ports = []
 routes = []
 
+[healthcheck]
+command = "PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas"
+timeout_seconds = 20
+success_hint = "Spark Harness Core schemas and authority kernel CLI are importable."
+failure_hint = "Run `PYTHONPATH=src python3 -m unittest discover -s tests` in spark-harness-core for detail."
+
 [profiles.genesis_harness]
 default = true

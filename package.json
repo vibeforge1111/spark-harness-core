@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json && node -e \"const fs=require('fs'); if (fs.existsSync('ts-dist-esm/index.mjs')) fs.rmSync('ts-dist-esm/index.mjs'); fs.renameSync('ts-dist-esm/index.js','ts-dist-esm/index.mjs')\"",
+    "test": "npm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
