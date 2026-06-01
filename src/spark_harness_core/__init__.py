@@ -13,6 +13,7 @@ from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
     authorize_vnext_tool_call,
+    build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "authorize_legacy_tool_call",
     "authorize_tool_call",
     "authorize_vnext_tool_call",
+    "build_vnext_tool_intent_envelope",
     "evidence_ref",
     "finalize_legacy_tool_call_ledger",
     "load_schema",

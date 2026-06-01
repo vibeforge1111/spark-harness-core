@@ -362,6 +362,90 @@ def _core_evidence(envelope: TurnIntentEnvelope) -> list[dict[str, Any]]:
     return evidence
 
 
+def build_vnext_tool_intent_envelope(
+    *,
+    surface: str,
+    actor_id_ref: str,
+    request_id: str,
+    source_kind: str,
+    tool_name: str,
+    owner_system: str,
+    mutation_class: MutationClass,
+    intent_summary: str,
+    raw_turn_summary: str,
+    publishes: bool = False,
+    external_network: bool = False,
+    confidence: float = 0.95,
+    requires_confirmation: bool | None = None,
+    args_path: str | None = None,
+) -> dict[str, Any]:
+    """Build a native VNext envelope for an already-detected tool intent."""
+
+    if mutation_class not in _MUTATION_CLASSES:
+        raise ValueError(f"Unsupported mutation class: {mutation_class}")
+
+    surface_name = _surface(surface)
+    action_type = _action_type(mutation_class, publishes, external_network)
+    risk_tier = _risk_tier(mutation_class, publishes, external_network)
+    confirmation_required = (
+        risk_tier in {"high", "critical"} if requires_confirmation is None else bool(requires_confirmation)
+    )
+
+    if action_type == "read":
+        selected_move = "read_current_state"
+        authority_state = "read_only"
+        confirmation_required = False
+    elif confirmation_required:
+        selected_move = "confirm_action"
+        authority_state = "confirmation_required"
+    else:
+        selected_move = "execute_action"
+        authority_state = "executable"
+
+    kernel = HarnessKernel(surface=surface_name, actor_id_ref=actor_id_ref or "human:redacted")
+    safe_request_id = _safe_id("turn", request_id or f"{surface_name}:{source_kind}:{tool_name}")
+    action = kernel.proposed_action(
+        capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+        action_type=action_type,
+        risk_tier=risk_tier,
+        summary=f"{owner_system} proposed {action_type} via {tool_name}.",
+        args_path=args_path
+        or f"{surface_name}://turns/{safe_request_id}/actions/{_safe_id('tool', tool_name)}",
+        requires_confirmation=confirmation_required,
+    )
+    turn_trace = trace_ref(
+        "fresh_turn",
+        raw_turn_summary or f"Fresh {surface_name} turn summarized by {source_kind}.",
+        redaction_class="private",
+    )
+    fresh_evidence = evidence_ref(
+        "fresh_user_intent",
+        surface_name,
+        intent_summary or f"Fresh {surface_name} user intent selected {tool_name}.",
+        confidence=confidence,
+    )
+    route_evidence = evidence_ref(
+        "route_candidate",
+        owner_system,
+        f"{tool_name} was proposed by {source_kind}.",
+        confidence=confidence,
+    )
+    fresh_evidence["trace_refs"] = [turn_trace]
+    route_evidence["trace_refs"] = [turn_trace]
+
+    return kernel.create_envelope(
+        selected_move=selected_move,
+        intent_summary=intent_summary or f"Fresh {surface_name} user intent selected {tool_name}.",
+        raw_turn_summary=raw_turn_summary or f"Fresh {surface_name} turn summarized by {source_kind}.",
+        evidence=[fresh_evidence, route_evidence],
+        proposed_actions=[action],
+        authority_state=authority_state,
+        risk_tier=risk_tier,
+        confidence=confidence,
+        requires_human_confirmation=confirmation_required,
+    )
+
+
 def _proposed_action(
     kernel: HarnessKernel,
     envelope: TurnIntentEnvelope,

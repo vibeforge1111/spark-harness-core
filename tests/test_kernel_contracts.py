@@ -15,6 +15,7 @@ from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
     authorize_vnext_tool_call,
+    build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
 )
@@ -313,6 +314,65 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(decision["verdict"], "allow")
         self.assertFalse(decision["restrictions"]["write_allowed"])
+
+    def test_builds_native_vnext_tool_intent_for_memory_write(self) -> None:
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-native-memory-write",
+            source_kind="telegram_runtime_profile_fact_observation",
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            intent_summary="User explicitly shared a profile fact to remember.",
+            raw_turn_summary="Telegram message summarized without raw private text.",
+        )
+
+        validate_instance("turn-intent-envelope-vnext", envelope)
+        self.assertEqual(envelope["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(envelope["surface"], "telegram")
+        self.assertEqual(envelope["selected_move"], "execute_action")
+        self.assertEqual(envelope["action_authority"]["state"], "executable")
+        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "write_memory")
+
+        result = authorize_vnext_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "allowed")
+        self.assertEqual(result.reason_codes, ())
+
+    def test_builds_native_vnext_tool_intent_for_memory_read(self) -> None:
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-native-memory-read",
+            source_kind="telegram_runtime_current_plan_read",
+            tool_name="memory.read",
+            owner_system="domain-chip-memory",
+            mutation_class="read_only",
+            intent_summary="User asked to inspect current saved plan.",
+            raw_turn_summary="Telegram memory read request summarized.",
+        )
+
+        validate_instance("turn-intent-envelope-vnext", envelope)
+        self.assertEqual(envelope["selected_move"], "read_current_state")
+        self.assertEqual(envelope["action_authority"]["state"], "read_only")
+        self.assertEqual(envelope["action_authority"]["risk_tier"], "read")
+        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "read")
+
+        result = authorize_vnext_tool_call(
+            envelope,
+            tool_name="memory.read",
+            owner_system="domain-chip-memory",
+            mutation_class="read_only",
+        )
+
+        self.assertEqual(result.verdict, "allowed")
+        self.assertEqual(result.reason_codes, ())
 
     def test_legacy_turn_intent_adapter_blocks_execution_policy_mismatch(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(can_write_memory=False))
