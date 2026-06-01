@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, evidence_ref
+from spark_harness_core.cli import _parse_category_score, _parse_gate, main as cli_main
 from spark_harness_core.schemas import check_all_schemas, load_schema, validate_instance
 
 
@@ -248,6 +251,120 @@ class KernelContractTests(unittest.TestCase):
             "stop_rules": ["no proposed action from chat-only move"],
         }
         validate_instance("surface-spec-v1", spec)
+
+    def test_kernel_builds_resource_experience_readiness_and_evolution_records(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        resource = kernel.resource(
+            resource_id="resource:harness-core-kernel",
+            resource_type="harness_spec",
+            owner_repo="spark-harness-core",
+            version="0.1.0",
+            tests=["python3 -m unittest discover -s tests"],
+        )
+        registry = kernel.resource_registry([resource])
+        self.assertEqual(registry["resources"][0]["resource_id"], "resource:harness-core-kernel")
+
+        artifact = artifact_ref("test_result", "experience/kernel-tests.json", "Kernel test result.")
+        experience = kernel.experience_index(
+            entries=[
+                kernel.experience_entry(
+                    entry_type="test_result",
+                    summary="Kernel contracts passed.",
+                    artifact=artifact,
+                    tags=["kernel", "contracts"],
+                )
+            ]
+        )
+        self.assertEqual(experience["entries"][0]["entry_type"], "test_result")
+
+        evidence = [sample_evidence()]
+        readiness = kernel.readiness_score(
+            target_kind="repo",
+            target_id="repo:spark-harness-core",
+            owner_repo="spark-harness-core",
+            category_scores={name: 0.9 for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")},
+            category_evidence={name: evidence for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        self.assertEqual(readiness["overall"]["status"], "release_candidate")
+
+        evolution = kernel.self_evolution_run(
+            mode="observe",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["python3 -m unittest discover -s tests"],
+            summary="Observed kernel evidence without promoting changes.",
+        )
+        self.assertEqual(evolution["promotion_decision"]["verdict"], "not_ready")
+
+    def test_kernel_change_manifest_enforces_protected_component_approval(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        protected_component = kernel.component(
+            component_id="component:authority-policy",
+            component_type="authority_policy",
+            owner_repo="spark-harness-core",
+            path="src/spark_harness_core/kernel.py",
+            summary="Authority policy is protected from self-evolution mutation.",
+            tests=["python3 -m unittest discover -s tests"],
+        )
+        with self.assertRaises(SchemaValidationError):
+            kernel.change_manifest(
+                target_component=protected_component,
+                failure_evidence=[sample_evidence()],
+                root_cause_hypothesis="Authority policy changes need explicit human approval.",
+                edit_summary="Change protected policy.",
+                predicted_fixes=["Would tighten protected authority behavior."],
+                predicted_regression_risks=["Could block valid actions."],
+                required_tests=["python3 -m unittest discover -s tests"],
+                rollback_plan="Revert the protected policy edit.",
+            )
+
+        manifest = kernel.change_manifest(
+            target_component=protected_component,
+            failure_evidence=[sample_evidence()],
+            root_cause_hypothesis="Authority policy changes need explicit human approval.",
+            edit_summary="Change protected policy with approval evidence.",
+            predicted_fixes=["Would tighten protected authority behavior."],
+            predicted_regression_risks=["Could block valid actions."],
+            required_tests=["python3 -m unittest discover -s tests"],
+            rollback_plan="Revert the protected policy edit.",
+            human_approval_ref=sample_evidence("human_confirmation"),
+        )
+        self.assertEqual(manifest["verdict"], "draft")
+
+    def test_cli_emits_valid_kernel_operating_records(self) -> None:
+        commands = (
+            ("resource-registry", "resource-registry-v1"),
+            ("experience-index", "experience-index-v1"),
+            (
+                "readiness-score --category execution=1 --category tools=1 --category context=1 "
+                "--category lifecycle=1 --category observability=1 --category verification=1 "
+                "--category governance=1 --gate zero_high_agency_legacy_local_gates=true",
+                "readiness-score-v1",
+            ),
+            ("self-evolution-run", "self-evolution-run-v1"),
+        )
+        for raw_command, schema_name in commands:
+            with self.subTest(command=raw_command):
+                stdout = StringIO()
+                argv = raw_command.split()
+                with redirect_stdout(stdout):
+                    exit_code = cli_main(argv)
+                self.assertEqual(exit_code, 0)
+                payload = json.loads(stdout.getvalue())
+                validate_instance(schema_name, payload)
+
+    def test_cli_rejects_unknown_readiness_inputs(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_category_score(["mood=1"])
+        with self.assertRaises(ValueError):
+            _parse_gate(["nearly=true"])
+        with self.assertRaises(ValueError):
+            _parse_gate(["public_ready=maybe"])
 
 
 if __name__ == "__main__":

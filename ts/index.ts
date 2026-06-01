@@ -222,6 +222,111 @@ export interface ToolCallLedgerV1 {
   trace: HarnessCoreTraceRef;
 }
 
+export type HarnessCoreReadinessCategoryName =
+  | 'execution'
+  | 'tools'
+  | 'context'
+  | 'lifecycle'
+  | 'observability'
+  | 'verification'
+  | 'governance';
+
+export interface HarnessCoreCategoryScore {
+  score: number;
+  evidence: HarnessCoreEvidenceRef[];
+  blockers: string[];
+}
+
+export interface ReadinessScoreV1 {
+  schema_version: 'readiness-score-v1';
+  score_id: string;
+  created_at: string;
+  target: {
+    kind: 'repo' | 'surface' | 'capability' | 'release' | 'resource';
+    id: string;
+    owner_repo: string;
+  };
+  categories: Record<HarnessCoreReadinessCategoryName, HarnessCoreCategoryScore>;
+  promotion_gates: {
+    public_ready: boolean;
+    network_absorbable: boolean;
+    telegram_live_proven: boolean;
+    startup_benchmark_proven: boolean;
+    zero_high_agency_legacy_local_gates: boolean;
+  };
+  overall: {
+    score: number;
+    status: 'blocked' | 'private_ready' | 'release_candidate' | 'public_ready';
+    summary: string;
+  };
+}
+
+export interface ExperienceIndexV1 {
+  schema_version: 'experience-index-v1';
+  index_id: string;
+  created_at: string;
+  entries: Array<{
+    entry_id: string;
+    entry_type:
+      | 'raw_trace'
+      | 'cleaned_trace'
+      | 'trajectory_report'
+      | 'score'
+      | 'route_decision'
+      | 'tool_ledger'
+      | 'screenshot'
+      | 'diff'
+      | 'test_result'
+      | 'live_reply'
+      | 'failure_report'
+      | 'success_pattern';
+    surface: HarnessCoreSurface;
+    summary: string;
+    artifact: HarnessCoreArtifactRef;
+    tags: string[];
+    linked_run_id?: string;
+    linked_change_id?: string;
+  }>;
+  query_hints: Array<{
+    name: string;
+    description: string;
+    glob: string;
+  }>;
+}
+
+export interface ResourceRegistryV1 {
+  schema_version: 'resource-registry-v1';
+  registry_id: string;
+  created_at: string;
+  resources: Array<{
+    resource_id: string;
+    resource_type:
+      | 'prompt'
+      | 'agent'
+      | 'subagent'
+      | 'tool'
+      | 'environment'
+      | 'memory_store'
+      | 'surface_adapter'
+      | 'harness_spec'
+      | 'eval_pack'
+      | 'startup_policy'
+      | 'surface_rule'
+      | 'model_profile'
+      | 'hook';
+    owner_repo: string;
+    lifecycle_state: 'draft' | 'active' | 'quarantined' | 'deprecated' | 'archived';
+    version: string;
+    authority_scope: HarnessCoreSurface[];
+    tests: string[];
+    lineage: {
+      created_from: string;
+      change_manifest_refs: string[];
+      rollback_ref: HarnessCoreArtifactRef;
+    };
+  }>;
+}
+
 export const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>> = Object.freeze({
   none: 0,
   read: 1,
@@ -285,5 +390,84 @@ export function createHarnessCoreEvidenceRef(input: {
     summary: input.summary,
     confidence: input.confidence,
     trace_refs: input.trace_refs || []
+  };
+}
+
+export function createHarnessCoreReadinessScore(input: {
+  id: string;
+  target_kind: ReadinessScoreV1['target']['kind'];
+  target_id: string;
+  owner_repo: string;
+  categories: Record<HarnessCoreReadinessCategoryName, HarnessCoreCategoryScore>;
+  promotion_gates?: Partial<ReadinessScoreV1['promotion_gates']>;
+  summary?: string;
+}): ReadinessScoreV1 {
+  const values = Object.values(input.categories).map((category) => category.score);
+  const score = values.length ? Number((values.reduce((sum, item) => sum + item, 0) / values.length).toFixed(4)) : 0;
+  const blockers = Object.values(input.categories).some((category) => category.blockers.length > 0);
+  const gates = {
+    public_ready: false,
+    network_absorbable: false,
+    telegram_live_proven: false,
+    startup_benchmark_proven: false,
+    zero_high_agency_legacy_local_gates: false,
+    ...(input.promotion_gates || {})
+  };
+  const status: ReadinessScoreV1['overall']['status'] =
+    gates.public_ready && gates.network_absorbable && score >= 0.95 && !blockers
+      ? 'public_ready'
+      : score >= 0.85 && gates.telegram_live_proven && gates.startup_benchmark_proven && !blockers
+        ? 'release_candidate'
+        : score >= 0.7 && gates.zero_high_agency_legacy_local_gates
+          ? 'private_ready'
+          : 'blocked';
+  return {
+    schema_version: 'readiness-score-v1',
+    score_id: safeHarnessCoreId('readiness', input.id),
+    created_at: new Date().toISOString(),
+    target: {
+      kind: input.target_kind,
+      id: input.target_id,
+      owner_repo: input.owner_repo
+    },
+    categories: input.categories,
+    promotion_gates: gates,
+    overall: {
+      score,
+      status,
+      summary: input.summary || `${input.owner_repo} readiness is ${status}.`
+    }
+  };
+}
+
+export function createHarnessCoreExperienceIndex(input: {
+  id: string;
+  entries?: ExperienceIndexV1['entries'];
+  query_hints?: ExperienceIndexV1['query_hints'];
+}): ExperienceIndexV1 {
+  return {
+    schema_version: 'experience-index-v1',
+    index_id: safeHarnessCoreId('experience-index', input.id),
+    created_at: new Date().toISOString(),
+    entries: input.entries || [],
+    query_hints: input.query_hints || [
+      {
+        name: 'harness evidence',
+        description: 'Search generated harness evidence, traces, scores, and change records.',
+        glob: 'experience/**/*.json'
+      }
+    ]
+  };
+}
+
+export function createHarnessCoreResourceRegistry(input: {
+  id: string;
+  resources: ResourceRegistryV1['resources'];
+}): ResourceRegistryV1 {
+  return {
+    schema_version: 'resource-registry-v1',
+    registry_id: safeHarnessCoreId('resource-registry', input.id),
+    created_at: new Date().toISOString(),
+    resources: input.resources
   };
 }

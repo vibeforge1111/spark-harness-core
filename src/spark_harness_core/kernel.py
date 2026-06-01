@@ -67,6 +67,19 @@ _RISK_ORDER = {
 }
 
 
+READINESS_CATEGORIES = (
+    "execution",
+    "tools",
+    "context",
+    "lifecycle",
+    "observability",
+    "verification",
+    "governance",
+)
+
+PROTECTED_EVOLUTION_COMPONENTS = frozenset({"verifier", "benchmark", "model_config", "authority_policy"})
+
+
 @dataclass(frozen=True)
 class HarnessKernel:
     """Minimal authority kernel for Spark surfaces.
@@ -247,6 +260,267 @@ class HarnessKernel:
         }
         return validate_instance("tool-call-ledger-v1", ledger)
 
+    def component(
+        self,
+        *,
+        component_id: str,
+        component_type: str,
+        owner_repo: str,
+        path: str,
+        summary: str,
+        tests: list[str],
+        editable_by_evolution: bool | None = None,
+        authority_scope: list[str] | None = None,
+        dependencies: list[str] | None = None,
+        rollback_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        component = {
+            "schema_version": "harness-component-v1",
+            "component_id": component_id,
+            "component_type": component_type,
+            "owner_repo": owner_repo,
+            "path": path,
+            "summary": summary,
+            "editable_by_evolution": (
+                component_type not in PROTECTED_EVOLUTION_COMPONENTS
+                if editable_by_evolution is None
+                else editable_by_evolution
+            ),
+            "authority_scope": authority_scope or [self.surface],
+            "dependencies": dependencies or [],
+            "tests": tests,
+        }
+        if rollback_ref is not None:
+            component["rollback_ref"] = rollback_ref
+        return validate_instance("harness-component-v1", component)
+
+    def resource(
+        self,
+        *,
+        resource_id: str,
+        resource_type: str,
+        owner_repo: str,
+        version: str,
+        tests: list[str],
+        lifecycle_state: str = "active",
+        authority_scope: list[str] | None = None,
+        created_from: str = "spark-harness-core",
+        change_manifest_refs: list[str] | None = None,
+        rollback_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "resource_id": resource_id,
+            "resource_type": resource_type,
+            "owner_repo": owner_repo,
+            "lifecycle_state": lifecycle_state,
+            "version": version,
+            "authority_scope": authority_scope or [self.surface],
+            "tests": tests,
+            "lineage": {
+                "created_from": created_from,
+                "change_manifest_refs": change_manifest_refs or [],
+                "rollback_ref": rollback_ref
+                or artifact_ref("rollback", f"rollback/{resource_id}.json", "Rollback plan reference."),
+            },
+        }
+
+    def resource_registry(self, resources: list[dict[str, Any]]) -> dict[str, Any]:
+        registry = {
+            "schema_version": "resource-registry-v1",
+            "registry_id": _id("resource-registry"),
+            "created_at": _now(),
+            "resources": resources,
+        }
+        return validate_instance("resource-registry-v1", registry)
+
+    def experience_entry(
+        self,
+        *,
+        entry_type: str,
+        summary: str,
+        artifact: dict[str, Any],
+        tags: list[str] | None = None,
+        linked_run_id: str | None = None,
+        linked_change_id: str | None = None,
+    ) -> dict[str, Any]:
+        entry = {
+            "entry_id": _id("experience"),
+            "entry_type": entry_type,
+            "surface": self.surface,
+            "summary": summary,
+            "artifact": artifact,
+            "tags": tags or [],
+        }
+        if linked_run_id:
+            entry["linked_run_id"] = linked_run_id
+        if linked_change_id:
+            entry["linked_change_id"] = linked_change_id
+        return entry
+
+    def experience_index(
+        self,
+        *,
+        entries: list[dict[str, Any]] | None = None,
+        query_hints: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        index = {
+            "schema_version": "experience-index-v1",
+            "index_id": _id("experience-index"),
+            "created_at": _now(),
+            "entries": entries or [],
+            "query_hints": query_hints
+            or [
+                {
+                    "name": "harness evidence",
+                    "description": "Search generated harness evidence, traces, scores, and change records.",
+                    "glob": "experience/**/*.json",
+                }
+            ],
+        }
+        return validate_instance("experience-index-v1", index)
+
+    def readiness_score(
+        self,
+        *,
+        target_kind: str,
+        target_id: str,
+        owner_repo: str,
+        category_scores: dict[str, float] | None = None,
+        category_evidence: dict[str, list[dict[str, Any]]] | None = None,
+        category_blockers: dict[str, list[str]] | None = None,
+        promotion_gates: dict[str, bool] | None = None,
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        scores = category_scores or {}
+        evidence = category_evidence or {}
+        blockers = category_blockers or {}
+        categories: dict[str, dict[str, Any]] = {}
+        for name in READINESS_CATEGORIES:
+            score = max(0.0, min(1.0, float(scores.get(name, 0.0))))
+            category_blocker_items = list(blockers.get(name, []))
+            if score <= 0 and not evidence.get(name):
+                category_blocker_items.append(f"missing_{name}_evidence")
+            categories[name] = {
+                "score": round(score, 4),
+                "evidence": evidence.get(name, []),
+                "blockers": category_blocker_items,
+            }
+        gates = {
+            "public_ready": False,
+            "network_absorbable": False,
+            "telegram_live_proven": False,
+            "startup_benchmark_proven": False,
+            "zero_high_agency_legacy_local_gates": False,
+            **(promotion_gates or {}),
+        }
+        overall_score = round(sum(item["score"] for item in categories.values()) / len(READINESS_CATEGORIES), 4)
+        any_blockers = any(item["blockers"] for item in categories.values())
+        if gates["public_ready"] and gates["network_absorbable"] and overall_score >= 0.95 and not any_blockers:
+            status = "public_ready"
+        elif overall_score >= 0.85 and gates["telegram_live_proven"] and gates["startup_benchmark_proven"] and not any_blockers:
+            status = "release_candidate"
+        elif overall_score >= 0.7 and gates["zero_high_agency_legacy_local_gates"]:
+            status = "private_ready"
+        else:
+            status = "blocked"
+        readiness = {
+            "schema_version": "readiness-score-v1",
+            "score_id": _id("readiness"),
+            "created_at": _now(),
+            "target": {
+                "kind": target_kind,
+                "id": target_id,
+                "owner_repo": owner_repo,
+            },
+            "categories": categories,
+            "promotion_gates": gates,
+            "overall": {
+                "score": overall_score,
+                "status": status,
+                "summary": summary
+                or f"{owner_repo} readiness is {status} with score {overall_score:.2f}.",
+            },
+        }
+        return validate_instance("readiness-score-v1", readiness)
+
+    def change_manifest(
+        self,
+        *,
+        target_component: dict[str, Any],
+        failure_evidence: list[dict[str, Any]],
+        root_cause_hypothesis: str,
+        edit_summary: str,
+        predicted_fixes: list[str],
+        predicted_regression_risks: list[str],
+        required_tests: list[str],
+        rollback_plan: str,
+        live_proof_required: bool = False,
+        observed_delta: list[dict[str, Any]] | None = None,
+        verdict: str = "draft",
+        human_approval_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        manifest = {
+            "schema_version": "change-manifest-v1",
+            "change_id": _id("change"),
+            "created_at": _now(),
+            "target_component": target_component,
+            "failure_evidence": failure_evidence,
+            "root_cause_hypothesis": root_cause_hypothesis,
+            "edit_summary": edit_summary,
+            "predicted_fixes": predicted_fixes,
+            "predicted_regression_risks": predicted_regression_risks,
+            "required_tests": required_tests,
+            "live_proof_required": live_proof_required,
+            "rollback_plan": rollback_plan,
+            "observed_delta": observed_delta or [],
+            "verdict": verdict,
+        }
+        if human_approval_ref is not None:
+            manifest["human_approval_ref"] = human_approval_ref
+        return validate_instance("change-manifest-v1", manifest)
+
+    def self_evolution_run(
+        self,
+        *,
+        mode: str,
+        experience_index: dict[str, Any],
+        readiness_score: dict[str, Any],
+        commands: list[str],
+        target_components: list[dict[str, Any]] | None = None,
+        change_manifests: list[dict[str, Any]] | None = None,
+        evaluation_packs: list[dict[str, Any]] | None = None,
+        verdict: str = "not_ready",
+        summary: str = "Self-evolution run recorded by Spark Harness Core.",
+        roles: dict[str, str] | None = None,
+        live_surface_required: bool = False,
+    ) -> dict[str, Any]:
+        record = {
+            "schema_version": "self-evolution-run-v1",
+            "evolution_id": _id("evolution"),
+            "created_at": _now(),
+            "mode": mode,
+            "roles": roles
+            or {
+                "harness_scientist": "spark-harness-core",
+                "surface_operator": self.surface,
+                "verifier": "spark-harness-core",
+            },
+            "experience_index": experience_index,
+            "target_components": target_components or [],
+            "change_manifests": change_manifests or [],
+            "test_plan": {
+                "evaluation_packs": evaluation_packs or [],
+                "live_surface_required": live_surface_required,
+                "commands": commands,
+            },
+            "promotion_decision": {
+                "verdict": verdict,
+                "summary": summary,
+                "readiness_score": readiness_score,
+            },
+        }
+        return validate_instance("self-evolution-run-v1", record)
+
     @staticmethod
     def _default_authority_state(selected_move: str, actions: list[dict[str, Any]]) -> str:
         if selected_move.startswith("chat_"):
@@ -260,4 +534,3 @@ class HarnessKernel:
         if selected_move == "execute_action" and actions:
             return "executable"
         return "none"
-

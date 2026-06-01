@@ -33,11 +33,63 @@ class TypeScriptContractTests(unittest.TestCase):
               confidence: 0.96,
               trace_refs: [trace]
             });
+            const category = { score: 1, evidence: [evidence], blockers: [] };
+            const readiness = core.createHarnessCoreReadinessScore({
+              id: 'telegram-authority',
+              target_kind: 'surface',
+              target_id: 'surface:telegram',
+              owner_repo: 'spark-telegram-bot',
+              categories: {
+                execution: category,
+                tools: category,
+                context: category,
+                lifecycle: category,
+                observability: category,
+                verification: category,
+                governance: category
+              },
+              promotion_gates: {
+                telegram_live_proven: true,
+                startup_benchmark_proven: true,
+                zero_high_agency_legacy_local_gates: true
+              }
+            });
+            const experience = core.createHarnessCoreExperienceIndex({
+              id: 'telegram-proof',
+              entries: [{
+                entry_id: 'experience:telegram-proof',
+                entry_type: 'test_result',
+                surface: 'telegram',
+                summary: 'Telegram authority proof passed.',
+                artifact,
+                tags: ['telegram', 'authority']
+              }]
+            });
+            const registry = core.createHarnessCoreResourceRegistry({
+              id: 'spark-core',
+              resources: [{
+                resource_id: 'resource:harness-core',
+                resource_type: 'harness_spec',
+                owner_repo: 'spark-harness-core',
+                lifecycle_state: 'active',
+                version: '0.1.0',
+                authority_scope: ['telegram'],
+                tests: ['npm run build'],
+                lineage: {
+                  created_from: 'spark-harness-core',
+                  change_manifest_refs: [],
+                  rollback_ref: artifact
+                }
+              }]
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
               artifact,
-              evidence
+              evidence,
+              readiness,
+              experience,
+              registry
             }));
             """
         )
@@ -53,6 +105,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["trace"]["id"], "trace:telegram-turn")
         self.assertEqual(payload["artifact"]["redaction_class"], "metadata_only")
         self.assertEqual(payload["evidence"]["kind"], "fresh_user_intent")
+        self.assertEqual(payload["readiness"]["schema_version"], "readiness-score-v1")
+        self.assertEqual(payload["readiness"]["overall"]["status"], "release_candidate")
+        self.assertEqual(payload["experience"]["entries"][0]["entry_type"], "test_result")
+        self.assertEqual(payload["registry"]["resources"][0]["resource_type"], "harness_spec")
 
 
 if __name__ == "__main__":

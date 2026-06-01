@@ -137,6 +137,74 @@ export interface ToolCallLedgerV1 {
     };
     trace: HarnessCoreTraceRef;
 }
+export type HarnessCoreReadinessCategoryName = 'execution' | 'tools' | 'context' | 'lifecycle' | 'observability' | 'verification' | 'governance';
+export interface HarnessCoreCategoryScore {
+    score: number;
+    evidence: HarnessCoreEvidenceRef[];
+    blockers: string[];
+}
+export interface ReadinessScoreV1 {
+    schema_version: 'readiness-score-v1';
+    score_id: string;
+    created_at: string;
+    target: {
+        kind: 'repo' | 'surface' | 'capability' | 'release' | 'resource';
+        id: string;
+        owner_repo: string;
+    };
+    categories: Record<HarnessCoreReadinessCategoryName, HarnessCoreCategoryScore>;
+    promotion_gates: {
+        public_ready: boolean;
+        network_absorbable: boolean;
+        telegram_live_proven: boolean;
+        startup_benchmark_proven: boolean;
+        zero_high_agency_legacy_local_gates: boolean;
+    };
+    overall: {
+        score: number;
+        status: 'blocked' | 'private_ready' | 'release_candidate' | 'public_ready';
+        summary: string;
+    };
+}
+export interface ExperienceIndexV1 {
+    schema_version: 'experience-index-v1';
+    index_id: string;
+    created_at: string;
+    entries: Array<{
+        entry_id: string;
+        entry_type: 'raw_trace' | 'cleaned_trace' | 'trajectory_report' | 'score' | 'route_decision' | 'tool_ledger' | 'screenshot' | 'diff' | 'test_result' | 'live_reply' | 'failure_report' | 'success_pattern';
+        surface: HarnessCoreSurface;
+        summary: string;
+        artifact: HarnessCoreArtifactRef;
+        tags: string[];
+        linked_run_id?: string;
+        linked_change_id?: string;
+    }>;
+    query_hints: Array<{
+        name: string;
+        description: string;
+        glob: string;
+    }>;
+}
+export interface ResourceRegistryV1 {
+    schema_version: 'resource-registry-v1';
+    registry_id: string;
+    created_at: string;
+    resources: Array<{
+        resource_id: string;
+        resource_type: 'prompt' | 'agent' | 'subagent' | 'tool' | 'environment' | 'memory_store' | 'surface_adapter' | 'harness_spec' | 'eval_pack' | 'startup_policy' | 'surface_rule' | 'model_profile' | 'hook';
+        owner_repo: string;
+        lifecycle_state: 'draft' | 'active' | 'quarantined' | 'deprecated' | 'archived';
+        version: string;
+        authority_scope: HarnessCoreSurface[];
+        tests: string[];
+        lineage: {
+            created_from: string;
+            change_manifest_refs: string[];
+            rollback_ref: HarnessCoreArtifactRef;
+        };
+    }>;
+}
 export declare const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>>;
 export declare function safeHarnessCoreId(prefix: string, raw: string): string;
 export declare function createHarnessCoreTraceRef(input: {
@@ -161,3 +229,21 @@ export declare function createHarnessCoreEvidenceRef(input: {
     confidence: number;
     trace_refs?: HarnessCoreTraceRef[];
 }): HarnessCoreEvidenceRef;
+export declare function createHarnessCoreReadinessScore(input: {
+    id: string;
+    target_kind: ReadinessScoreV1['target']['kind'];
+    target_id: string;
+    owner_repo: string;
+    categories: Record<HarnessCoreReadinessCategoryName, HarnessCoreCategoryScore>;
+    promotion_gates?: Partial<ReadinessScoreV1['promotion_gates']>;
+    summary?: string;
+}): ReadinessScoreV1;
+export declare function createHarnessCoreExperienceIndex(input: {
+    id: string;
+    entries?: ExperienceIndexV1['entries'];
+    query_hints?: ExperienceIndexV1['query_hints'];
+}): ExperienceIndexV1;
+export declare function createHarnessCoreResourceRegistry(input: {
+    id: string;
+    resources: ResourceRegistryV1['resources'];
+}): ResourceRegistryV1;
