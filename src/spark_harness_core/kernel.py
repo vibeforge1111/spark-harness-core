@@ -219,9 +219,14 @@ class HarnessKernel:
     ) -> dict[str, Any]:
         validate_instance("turn-intent-envelope-vnext", envelope)
         risk = action["risk_tier"]
-        executable = envelope["action_authority"]["state"] == "executable"
-        read_only_authorized = envelope["action_authority"]["state"] == "read_only" and action.get("action_type") == "read"
-        if not executable and not read_only_authorized:
+        authority_state = envelope["action_authority"]["state"]
+        executable = authority_state == "executable"
+        read_only_authorized = authority_state == "read_only" and action.get("action_type") == "read"
+        if authority_state == "confirmation_required":
+            verdict = "interrupt"
+            approval = {"required": True, "status": "requested"}
+            reasons = ["Envelope requires explicit confirmation before execution."]
+        elif not executable and not read_only_authorized:
             verdict = "deny"
             approval = {"required": False, "status": "not_required"}
             reasons = ["Envelope is not executable; raw words or proposals cannot run tools."]
@@ -253,6 +258,60 @@ class HarnessKernel:
             "trace": trace_ref("authorization", "Authorization decision created by Spark Harness Core."),
         }
         return validate_instance("authorization-decision-v1", decision)
+
+    def governor_decision(
+        self,
+        envelope: dict[str, Any],
+        *,
+        authorizations: list[dict[str, Any]] | None = None,
+        tool_ledgers: list[dict[str, Any]] | None = None,
+        reply_style: str | None = None,
+        reply_instruction: str | None = None,
+    ) -> dict[str, Any]:
+        validate_instance("turn-intent-envelope-vnext", envelope)
+        authorization_items = list(authorizations or [])
+        ledger_items = list(tool_ledgers or [])
+        for authorization in authorization_items:
+            validate_instance("authorization-decision-v1", authorization)
+        for ledger in ledger_items:
+            validate_instance("tool-call-ledger-v1", ledger)
+
+        outcome = self._governor_outcome(envelope, authorization_items)
+        authorized_action_count = sum(1 for item in authorization_items if item.get("verdict") == "allow")
+        requires_confirmation = bool(envelope["action_authority"].get("requires_human_confirmation")) or any(
+            item.get("approval", {}).get("required") for item in authorization_items
+        )
+        decision = {
+            "schema_version": "governor-decision-v1",
+            "decision_id": _id("governor-decision"),
+            "created_at": _now(),
+            "surface": envelope["surface"],
+            "turn_id": envelope["turn_id"],
+            "selected_move": envelope["selected_move"],
+            "authority_state": envelope["action_authority"]["state"],
+            "risk_tier": envelope["action_authority"]["risk_tier"],
+            "outcome": outcome,
+            "envelope": envelope,
+            "authorizations": authorization_items,
+            "tool_ledgers": ledger_items,
+            "execution_boundary": {
+                "action_authorized": outcome == "execute",
+                "action_count": len(envelope.get("proposed_actions", [])),
+                "authorized_action_count": authorized_action_count,
+                "requires_human_confirmation": requires_confirmation,
+                "legacy_authority_demoted": True,
+                "reasons": self._governor_reasons(outcome, envelope, authorization_items),
+            },
+            "reply_contract": {
+                "style": reply_style or self._default_reply_style(outcome),
+                "instruction": reply_instruction or self._default_reply_instruction(outcome),
+                "inspect_link_allowed": outcome in {"read_only", "execute", "interrupt", "degrade"},
+                "should_interrupt": outcome == "interrupt",
+            },
+            "evidence": envelope["evidence"],
+            "trace": trace_ref("governor", "Governor decision created by Spark Harness Core."),
+        }
+        return validate_instance("governor-decision-v1", decision)
 
     def record_tool_call(
         self,
@@ -817,6 +876,77 @@ class HarnessKernel:
             },
         }
         return validate_instance("self-evolution-run-v1", record)
+
+    def _governor_outcome(self, envelope: dict[str, Any], authorizations: list[dict[str, Any]]) -> str:
+        state = str(envelope["action_authority"]["state"])
+        selected_move = str(envelope["selected_move"])
+        action_count = len(envelope.get("proposed_actions", []))
+        verdicts = [str(item.get("verdict") or "") for item in authorizations]
+        if state == "executable" and "allow" in verdicts:
+            return "execute"
+        if state == "confirmation_required" or "interrupt" in verdicts:
+            return "interrupt"
+        if state == "read_only":
+            return "read_only"
+        if state == "prepare_allowed":
+            return "prepare"
+        if "deny" in verdicts or state == "blocked":
+            return "deny"
+        if selected_move.startswith("chat_") and action_count == 0:
+            return "chat_only"
+        return "degrade"
+
+    def _governor_reasons(
+        self,
+        outcome: str,
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+    ) -> list[str]:
+        reasons = [
+            "fresh_user_intent_is_authority",
+            "legacy_detectors_are_evidence_only",
+        ]
+        if outcome == "execute":
+            reasons.append("governor_authorized_execution")
+        elif outcome == "interrupt":
+            reasons.append("governor_requires_explicit_confirmation")
+        elif outcome == "read_only":
+            reasons.append("governor_allows_read_only_state_access")
+        elif outcome == "chat_only":
+            reasons.append("governor_keeps_turn_conversational")
+        elif outcome == "prepare":
+            reasons.append("governor_allows_preparation_without_execution")
+        elif outcome == "deny":
+            reasons.append("governor_denies_action_boundary")
+        else:
+            reasons.append("governor_degrades_to_safe_surface_behavior")
+        for authorization in authorizations:
+            for reason in authorization.get("reasons", []):
+                if reason not in reasons:
+                    reasons.append(str(reason))
+        if envelope["action_authority"].get("requires_human_confirmation"):
+            reasons.append("human_confirmation_required_by_envelope")
+        return reasons
+
+    def _default_reply_style(self, outcome: str) -> str:
+        if outcome == "degrade":
+            return "compact_status"
+        return "human_conversational"
+
+    def _default_reply_instruction(self, outcome: str) -> str:
+        if outcome == "execute":
+            return "Proceed only with the authorized action and record the result ledger."
+        if outcome == "interrupt":
+            return "Ask for explicit approval before any high-agency action executes."
+        if outcome == "read_only":
+            return "Answer from fresh read-only state; do not mutate state."
+        if outcome == "prepare":
+            return "Prepare the action plan without executing tools or mutating state."
+        if outcome == "deny":
+            return "Briefly explain why the action boundary was denied and stay conversational."
+        if outcome == "degrade":
+            return "Use the safest non-executing surface behavior and preserve evidence for review."
+        return "Answer conversationally; do not launch, write, schedule, publish, or run tools."
 
     def _validate_self_evolution_policy(
         self,

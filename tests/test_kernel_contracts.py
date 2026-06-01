@@ -184,6 +184,85 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(decision["verdict"], "interrupt")
         self.assertTrue(decision["approval"]["required"])
 
+    def test_governor_decision_keeps_chat_only_turns_non_executing(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        envelope = kernel.create_envelope(
+            selected_move="chat_explain",
+            intent_summary="User is discussing build, memory, and publish as examples.",
+            raw_turn_summary="Action words are present as discussion vocabulary.",
+            confidence=0.87,
+        )
+        decision = kernel.governor_decision(envelope)
+        self.assertEqual(decision["schema_version"], "governor-decision-v1")
+        self.assertEqual(decision["outcome"], "chat_only")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertEqual(decision["execution_boundary"]["action_count"], 0)
+        self.assertTrue(decision["execution_boundary"]["legacy_authority_demoted"])
+        self.assertEqual(decision["reply_contract"]["style"], "human_conversational")
+        self.assertFalse(decision["reply_contract"]["should_interrupt"])
+
+    def test_governor_decision_executes_only_after_authorization(self) -> None:
+        kernel = HarnessKernel(surface="cli")
+        action = kernel.proposed_action(
+            capability_id="capability:schema-validation",
+            action_type="run_command",
+            risk_tier="low",
+            summary="Run local schema validation.",
+            args_path="experience/private/validate-args.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked for schema validation.",
+            raw_turn_summary="Run schema validation.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.94,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="spark-harness-core.validate",
+            status="not_started",
+            output_path="experience/private/not-started.json",
+            summary="Execution is authorized but not started in this proof.",
+        )
+        decision = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+        self.assertEqual(decision["outcome"], "execute")
+        self.assertTrue(decision["execution_boundary"]["action_authorized"])
+        self.assertEqual(decision["execution_boundary"]["authorized_action_count"], 1)
+        self.assertEqual(decision["tool_ledgers"][0]["result"]["status"], "not_started")
+
+    def test_governor_decision_interrupts_high_risk_actions(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:publish",
+            action_type="publish",
+            risk_tier="high",
+            summary="Publish a reviewed Spark release.",
+            args_path="experience/private/publish-args.json",
+            requires_confirmation=True,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="confirm_action",
+            intent_summary="User appears to request a publish action.",
+            raw_turn_summary="Publish the reviewed Spark release.",
+            proposed_actions=[action],
+            authority_state="confirmation_required",
+            risk_tier="high",
+            confidence=0.9,
+            requires_human_confirmation=True,
+        )
+        authorization = kernel.authorize(envelope, action)
+        decision = kernel.governor_decision(envelope, authorizations=[authorization])
+        self.assertEqual(decision["outcome"], "interrupt")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertTrue(decision["execution_boundary"]["requires_human_confirmation"])
+        self.assertTrue(decision["reply_contract"]["should_interrupt"])
+
     def test_authorization_sets_browser_action_restrictions_from_confirmation_boundary(self) -> None:
         kernel = HarnessKernel(surface="cli")
         read_action = kernel.proposed_action(
@@ -958,6 +1037,7 @@ class KernelContractTests(unittest.TestCase):
             ("experience-index", "experience-index-v1"),
             ("evaluation-pack", "evaluation-pack-v1"),
             ("harness-run --status passed --summary harness-run-proof", "harness-run-v1"),
+            ("governor-decision", "governor-decision-v1"),
             ("telegram-live-qa-packet --include-risky", "telegram-live-qa-evidence-packet-v1"),
             ("change-manifest", "change-manifest-v1"),
             (

@@ -1,6 +1,7 @@
 export type HarnessCoreSchemaVersion = 'turn-intent-envelope-vnext';
 export type HarnessCoreAuthorizationSchemaVersion = 'authorization-decision-v1';
 export type HarnessCoreToolLedgerSchemaVersion = 'tool-call-ledger-v1';
+export type HarnessCoreGovernorSchemaVersion = 'governor-decision-v1';
 
 export type HarnessCoreSurface =
   | 'telegram'
@@ -219,6 +220,46 @@ export interface ToolCallLedgerV1 {
     error_ref?: HarnessCoreArtifactRef;
     rollback_ref?: HarnessCoreArtifactRef;
   };
+  trace: HarnessCoreTraceRef;
+}
+
+export type HarnessCoreGovernorOutcome =
+  | 'chat_only'
+  | 'read_only'
+  | 'prepare'
+  | 'execute'
+  | 'interrupt'
+  | 'deny'
+  | 'degrade';
+
+export interface GovernorDecisionV1 {
+  schema_version: HarnessCoreGovernorSchemaVersion;
+  decision_id: string;
+  created_at: string;
+  surface: HarnessCoreSurface;
+  turn_id: string;
+  selected_move: HarnessCoreMoveType;
+  authority_state: HarnessCoreAuthorityState;
+  risk_tier: HarnessCoreRiskTier;
+  outcome: HarnessCoreGovernorOutcome;
+  envelope: TurnIntentEnvelopeVNext;
+  authorizations: AuthorizationDecisionV1[];
+  tool_ledgers: ToolCallLedgerV1[];
+  execution_boundary: {
+    action_authorized: boolean;
+    action_count: number;
+    authorized_action_count: number;
+    requires_human_confirmation: boolean;
+    legacy_authority_demoted: true;
+    reasons: string[];
+  };
+  reply_contract: {
+    style: 'human_conversational' | 'compact_status' | 'dense_card' | 'raw_json' | 'no_reply';
+    instruction: string;
+    inspect_link_allowed: boolean;
+    should_interrupt: boolean;
+  };
+  evidence: HarnessCoreEvidenceRef[];
   trace: HarnessCoreTraceRef;
 }
 
@@ -788,6 +829,134 @@ export function createHarnessCoreActionEnvelopeVNext(input: {
       offload_artifacts: []
     },
     trace
+  };
+}
+
+function governorOutcomeFor(input: {
+  envelope: TurnIntentEnvelopeVNext;
+  authorizations: AuthorizationDecisionV1[];
+}): HarnessCoreGovernorOutcome {
+  const { envelope, authorizations } = input;
+  const state = envelope.action_authority.state;
+  const verdicts = new Set(authorizations.map((authorization) => authorization.verdict));
+  if (state === 'executable' && verdicts.has('allow')) return 'execute';
+  if (state === 'confirmation_required' || verdicts.has('interrupt')) return 'interrupt';
+  if (state === 'read_only') return 'read_only';
+  if (state === 'prepare_allowed') return 'prepare';
+  if (state === 'blocked' || verdicts.has('deny')) return 'deny';
+  if (envelope.selected_move.startsWith('chat_') && envelope.proposed_actions.length === 0) return 'chat_only';
+  return 'degrade';
+}
+
+function defaultGovernorReplyStyle(outcome: HarnessCoreGovernorOutcome): GovernorDecisionV1['reply_contract']['style'] {
+  return outcome === 'degrade' ? 'compact_status' : 'human_conversational';
+}
+
+function defaultGovernorReplyInstruction(outcome: HarnessCoreGovernorOutcome): string {
+  switch (outcome) {
+    case 'execute':
+      return 'Proceed only with the authorized action and record the result ledger.';
+    case 'interrupt':
+      return 'Ask for explicit approval before any high-agency action executes.';
+    case 'read_only':
+      return 'Answer from fresh read-only state; do not mutate state.';
+    case 'prepare':
+      return 'Prepare the action plan without executing tools or mutating state.';
+    case 'deny':
+      return 'Briefly explain why the action boundary was denied and stay conversational.';
+    case 'degrade':
+      return 'Use the safest non-executing surface behavior and preserve evidence for review.';
+    default:
+      return 'Answer conversationally; do not launch, write, schedule, publish, or run tools.';
+  }
+}
+
+function governorReasonsFor(input: {
+  outcome: HarnessCoreGovernorOutcome;
+  envelope: TurnIntentEnvelopeVNext;
+  authorizations: AuthorizationDecisionV1[];
+}): string[] {
+  const reasons = ['fresh_user_intent_is_authority', 'legacy_detectors_are_evidence_only'];
+  switch (input.outcome) {
+    case 'execute':
+      reasons.push('governor_authorized_execution');
+      break;
+    case 'interrupt':
+      reasons.push('governor_requires_explicit_confirmation');
+      break;
+    case 'read_only':
+      reasons.push('governor_allows_read_only_state_access');
+      break;
+    case 'chat_only':
+      reasons.push('governor_keeps_turn_conversational');
+      break;
+    case 'prepare':
+      reasons.push('governor_allows_preparation_without_execution');
+      break;
+    case 'deny':
+      reasons.push('governor_denies_action_boundary');
+      break;
+    default:
+      reasons.push('governor_degrades_to_safe_surface_behavior');
+      break;
+  }
+  for (const authorization of input.authorizations) {
+    for (const reason of authorization.reasons) {
+      if (!reasons.includes(reason)) reasons.push(reason);
+    }
+  }
+  if (input.envelope.action_authority.requires_human_confirmation) {
+    reasons.push('human_confirmation_required_by_envelope');
+  }
+  return reasons;
+}
+
+export function createHarnessCoreGovernorDecision(input: {
+  envelope: TurnIntentEnvelopeVNext;
+  authorizations?: AuthorizationDecisionV1[];
+  tool_ledgers?: ToolCallLedgerV1[];
+  reply_style?: GovernorDecisionV1['reply_contract']['style'];
+  reply_instruction?: string;
+}): GovernorDecisionV1 {
+  const authorizations = input.authorizations || [];
+  const toolLedgers = input.tool_ledgers || [];
+  const outcome = governorOutcomeFor({ envelope: input.envelope, authorizations });
+  const authorizedActionCount = authorizations.filter((authorization) => authorization.verdict === 'allow').length;
+  const requiresHumanConfirmation =
+    input.envelope.action_authority.requires_human_confirmation ||
+    authorizations.some((authorization) => authorization.approval.required);
+  return {
+    schema_version: 'governor-decision-v1',
+    decision_id: safeHarnessCoreId('governor-decision', `${input.envelope.turn_id}:${outcome}`),
+    created_at: new Date().toISOString(),
+    surface: input.envelope.surface,
+    turn_id: input.envelope.turn_id,
+    selected_move: input.envelope.selected_move,
+    authority_state: input.envelope.action_authority.state,
+    risk_tier: input.envelope.action_authority.risk_tier,
+    outcome,
+    envelope: input.envelope,
+    authorizations,
+    tool_ledgers: toolLedgers,
+    execution_boundary: {
+      action_authorized: outcome === 'execute',
+      action_count: input.envelope.proposed_actions.length,
+      authorized_action_count: authorizedActionCount,
+      requires_human_confirmation: requiresHumanConfirmation,
+      legacy_authority_demoted: true,
+      reasons: governorReasonsFor({ outcome, envelope: input.envelope, authorizations })
+    },
+    reply_contract: {
+      style: input.reply_style || defaultGovernorReplyStyle(outcome),
+      instruction: input.reply_instruction || defaultGovernorReplyInstruction(outcome),
+      inspect_link_allowed: ['read_only', 'execute', 'interrupt', 'degrade'].includes(outcome),
+      should_interrupt: outcome === 'interrupt'
+    },
+    evidence: input.envelope.evidence,
+    trace: createHarnessCoreTraceRef({
+      id: `${input.envelope.turn_id}:governor`,
+      summary: 'Governor decision created by Spark Harness Core.'
+    })
   };
 }
 

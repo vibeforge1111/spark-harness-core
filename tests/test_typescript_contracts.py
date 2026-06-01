@@ -226,6 +226,30 @@ class TypeScriptContractTests(unittest.TestCase):
               requestId: 'dispatch-vnext-test',
               target: 'mission-vnext-test'
             });
+            const action = envelope.proposed_actions[0];
+            const authorization = {
+              schema_version: 'authorization-decision-v1',
+              decision_id: 'decision:spawner-dispatch',
+              created_at: '2026-06-02T00:00:00.000Z',
+              turn_id: envelope.turn_id,
+              action_id: action.action_id,
+              capability_id: action.capability_id,
+              verdict: 'allow',
+              risk_tier: action.risk_tier,
+              reasons: ['harness_core_authorized'],
+              evidence: envelope.evidence,
+              approval: { required: false, status: 'not_required' },
+              restrictions: {
+                network_allowed: false,
+                write_allowed: false,
+                publish_allowed: false
+              },
+              trace
+            };
+            const governorDecision = core.createHarnessCoreGovernorDecision({
+              envelope,
+              authorizations: [authorization]
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -241,7 +265,8 @@ class TypeScriptContractTests(unittest.TestCase):
               acceptedManifest,
               blockedPromotion,
               selfEvolution,
-              envelope
+              envelope,
+              governorDecision
             }));
             """
         )
@@ -282,6 +307,10 @@ class TypeScriptContractTests(unittest.TestCase):
             "capability:spawner-ui:spawner.dispatch",
         )
         self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "launch_mission")
+        self.assertEqual(payload["governorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["governorDecision"]["outcome"], "execute")
+        self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
+        self.assertEqual(payload["governorDecision"]["execution_boundary"]["authorized_action_count"], 1)
 
     def test_esm_package_face_exports_action_envelope_helper(self) -> None:
         script = textwrap.dedent(

@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/governor-decision-v1.schema.json",
+  "title": "Spark Governor Decision V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "created_at",
+    "surface",
+    "turn_id",
+    "selected_move",
+    "authority_state",
+    "risk_tier",
+    "outcome",
+    "envelope",
+    "authorizations",
+    "tool_ledgers",
+    "execution_boundary",
+    "reply_contract",
+    "evidence",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": { "const": "governor-decision-v1" },
+    "decision_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "turn_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "selected_move": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/moveType" },
+    "authority_state": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/authorityState" },
+    "risk_tier": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/riskTier" },
+    "outcome": {
+      "type": "string",
+      "enum": ["chat_only", "read_only", "prepare", "execute", "interrupt", "deny", "degrade"]
+    },
+    "envelope": { "$ref": "https://spark.local/schemas/turn-intent-envelope-vnext.schema.json" },
+    "authorizations": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/authorization-decision-v1.schema.json" },
+      "default": []
+    },
+    "tool_ledgers": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/tool-call-ledger-v1.schema.json" },
+      "default": []
+    },
+    "execution_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_authorized",
+        "action_count",
+        "authorized_action_count",
+        "requires_human_confirmation",
+        "legacy_authority_demoted",
+        "reasons"
+      ],
+      "properties": {
+        "action_authorized": { "type": "boolean" },
+        "action_count": { "type": "integer", "minimum": 0 },
+        "authorized_action_count": { "type": "integer", "minimum": 0 },
+        "requires_human_confirmation": { "type": "boolean" },
+        "legacy_authority_demoted": { "const": true },
+        "reasons": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "minItems": 1
+        }
+      }
+    },
+    "reply_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style", "instruction", "inspect_link_allowed", "should_interrupt"],
+      "properties": {
+        "style": {
+          "type": "string",
+          "enum": ["human_conversational", "compact_status", "dense_card", "raw_json", "no_reply"]
+        },
+        "instruction": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "inspect_link_allowed": { "type": "boolean" },
+        "should_interrupt": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+      "minItems": 1
+    },
+    "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "execute" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "authority_state": { "const": "executable" },
+          "execution_boundary": {
+            "properties": {
+              "action_authorized": { "const": true },
+              "authorized_action_count": { "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "chat_only" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "authority_state": { "enum": ["none", "chat_only", "blocked"] },
+          "execution_boundary": {
+            "properties": {
+              "action_authorized": { "const": false },
+              "action_count": { "const": 0 },
+              "authorized_action_count": { "const": 0 },
+              "requires_human_confirmation": { "const": false }
+            }
+          },
+          "reply_contract": {
+            "properties": {
+              "style": { "const": "human_conversational" },
+              "should_interrupt": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "interrupt" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "authority_state": { "const": "confirmation_required" },
+          "execution_boundary": {
+            "properties": {
+              "action_authorized": { "const": false },
+              "requires_human_confirmation": { "const": true }
+            }
+          },
+          "reply_contract": {
+            "properties": {
+              "should_interrupt": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "read_only" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "authority_state": { "const": "read_only" }
+        }
+      }
+    }
+  ]
+}

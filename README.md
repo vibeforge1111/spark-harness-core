@@ -10,8 +10,8 @@ model proposes -> Governor decides -> lifecycle executes -> ledger records -> ev
 
 ## What Lives Here
 
-- JSON Schemas for the authority envelope, capability registry, tool lifecycle, trace ledger, experience index, resources, surface specs, readiness scores, autonomy policy, eval packs, and self-evolution runs.
-- A small Python kernel that can create and validate envelopes, authorization decisions, tool ledgers, resource registries, experience indexes, readiness scores, change manifests, and self-evolution run records.
+- JSON Schemas for the authority envelope, Governor decision, capability registry, tool lifecycle, trace ledger, experience index, resources, surface specs, readiness scores, autonomy policy, eval packs, and self-evolution runs.
+- A small Python kernel that can create and validate envelopes, authorization decisions, Governor decisions, tool ledgers, resource registries, experience indexes, readiness scores, change manifests, and self-evolution run records.
 - A private Node/TypeScript package face (`@spark/harness-core`) that exports the canonical VNext contract types and helper constructors for Spark adapters.
 - Tests proving the contracts load, validate, and reject important authority failures.
 - Documentation mapping the research and pasted notes into Spark's implementation plan.
@@ -24,7 +24,7 @@ model proposes -> Governor decides -> lifecycle executes -> ledger records -> ev
 
 ## First Principle
 
-Words alone never trigger action. Raw language can create evidence and proposals; only a validated `TurnIntentEnvelopeVNext` plus `AuthorizationDecisionV1` can authorize high-agency execution.
+Words alone never trigger action. Raw language can create evidence and proposals; only a validated `TurnIntentEnvelopeVNext`, `AuthorizationDecisionV1`, and `GovernorDecisionV1` can authorize high-agency execution.
 
 ## Current Status
 
@@ -35,6 +35,7 @@ This is still an early implementation slice, but the core now owns the Python sc
 The kernel can now emit and validate the records Spark needs before promoting a harness change:
 
 - `resource-registry-v1`: declares prompts, tools, agents, specs, adapters, policies, memory stores, eval packs, and surface rules as versioned resources.
+- `governor-decision-v1`: binds one envelope, authorization set, optional ledgers, execution boundary, and reply contract into the canonical route outcome every Spark surface must consume.
 - `experience-index-v1`: points to traces, screenshots, tool ledgers, scorecards, diffs, and live proof without flooding the live model context.
 - `readiness-score-v1`: scores execution, tools, context, lifecycle, observability, verification, and governance, then derives blocked, private-ready, release-candidate, or public-ready status from evidence and gates.
 - `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence.
@@ -49,6 +50,7 @@ npm run build
 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas
 PYTHONPATH=src python3 -m spark_harness_core.cli resource-registry
+PYTHONPATH=src python3 -m spark_harness_core.cli governor-decision
 PYTHONPATH=src python3 -m spark_harness_core.cli experience-index
 PYTHONPATH=src python3 -m spark_harness_core.cli telegram-live-qa-packet --include-risky
 PYTHONPATH=src python3 -m spark_harness_core.cli readiness-score --category execution=1 --category tools=1 --category context=1 --category lifecycle=1 --category observability=1 --category verification=1 --category governance=1 --gate zero_high_agency_legacy_local_gates=true
