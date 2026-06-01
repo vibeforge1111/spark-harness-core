@@ -1,0 +1,21 @@
+{
+  "name": "@spark/harness-core",
+  "version": "0.1.0",
+  "description": "Spark Genesis Harness canonical runtime contracts",
+  "private": true,
+  "main": "ts-dist/index.js",
+  "types": "ts-dist/index.d.ts",
+  "files": [
+    "ts-dist",
+    "schemas",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

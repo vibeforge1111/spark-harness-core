@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+node_modules/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -9,4 +10,3 @@ build/
 *.egg-info/
 experience/raw/
 experience/private/
-
