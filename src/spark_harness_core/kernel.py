@@ -112,6 +112,8 @@ WRITE_ACTION_TYPES = frozenset(
         "computer_action",
     }
 )
+LIVE_QA_RISKS = ("safe", "mission", "writes_files", "external")
+LIVE_QA_VERDICTS = ("pass", "fail", "blocked", "needs-retest", "untested")
 
 
 @dataclass(frozen=True)
@@ -607,6 +609,125 @@ class HarnessKernel:
             },
         }
         return validate_instance("harness-run-v1", run)
+
+    def telegram_live_qa_case(
+        self,
+        *,
+        ordinal: int,
+        case_id: str,
+        suite: str,
+        risk: str,
+        expected_route: str,
+        expected_outcome: str,
+        prompts: list[str],
+    ) -> dict[str, Any]:
+        turns = [prompt.strip() for prompt in prompts if prompt.strip()]
+        if not turns:
+            raise ValueError("telegram live QA case requires at least one prompt.")
+        if risk not in LIVE_QA_RISKS:
+            raise ValueError(f"unsupported Telegram live QA risk: {risk}")
+        return {
+            "ordinal": ordinal,
+            "id": case_id,
+            "suite": suite,
+            "risk": risk,
+            "expected_route": expected_route,
+            "expected_outcome": expected_outcome,
+            "verdict": "untested",
+            "actual_route": None,
+            "actual_outcome": None,
+            "observed_turns": [
+                {
+                    "turn_index": index + 1,
+                    "prompt": prompt,
+                    "reply": None,
+                    "reply_timestamp": None,
+                }
+                for index, prompt in enumerate(turns)
+            ],
+            "side_effects": {
+                "files_changed": None,
+                "memory_written": None,
+                "mission_started": None,
+                "external_network_called": None,
+                "pr_opened": None,
+                "publish_or_deploy_started": None,
+                "schedule_changed": None,
+                "tool_or_browser_used": None,
+            },
+            "evidence_refs": {
+                "authorization_ledgers": [],
+                "tool_ledgers": [],
+                "traces": [],
+                "runtime_status": [],
+                "screenshots": [],
+                "commits": [],
+                "prs": [],
+            },
+            "issue": None,
+            "fix_commit": None,
+            "retest_required": False,
+        }
+
+    def telegram_live_qa_evidence_packet(
+        self,
+        *,
+        cases: list[dict[str, Any]],
+        catalog: str,
+        title: str = "Spark Telegram Live QA Evidence Packet",
+        suite: str | None = None,
+        include_risky: bool = False,
+        run_id: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        created_at = generated_at or _now()
+        risk_counts = {risk: 0 for risk in LIVE_QA_RISKS}
+        summary_counts = {verdict.replace("-", "_"): 0 for verdict in LIVE_QA_VERDICTS}
+        for case in cases:
+            risk = str(case.get("risk") or "")
+            verdict = str(case.get("verdict") or "untested")
+            if risk not in risk_counts:
+                raise ValueError(f"unsupported Telegram live QA risk: {risk}")
+            if verdict not in LIVE_QA_VERDICTS:
+                raise ValueError(f"unsupported Telegram live QA verdict: {verdict}")
+            risk_counts[risk] += 1
+            summary_counts[verdict.replace("-", "_")] += 1
+        packet = {
+            "schema_version": "spark.telegram_live_qa_evidence_packet.v1",
+            "generated_at": created_at,
+            "run_id": run_id or f"telegram-live-qa-{created_at.replace(':', '-').replace('.', '-')}",
+            "title": title,
+            "catalog": catalog,
+            "selection": {
+                "suite": suite,
+                "include_risky": include_risky,
+                "case_count": len(cases),
+                "risk_counts": risk_counts,
+            },
+            "authority_claim_boundary": (
+                "This packet is a live QA evidence container. It does not prove release readiness until "
+                "each case has observed replies, side-effect checks, ledger or trace evidence where required, "
+                "and a human verdict. It must not be treated as authority to execute high-agency actions."
+            ),
+            "required_session_evidence": {
+                "profile": None,
+                "tester": None,
+                "bot_runtime_commit": None,
+                "harness_core_commit": None,
+                "spark_os_compile_ref": None,
+                "spark_live_status_ref": None,
+                "spark_verify_provenance_ref": None,
+                "telegram_chat_evidence_ref": None,
+                "overall_verdict": "untested",
+                "follow_up_commits": [],
+                "pr_links": [],
+                "remaining_risks": [],
+            },
+            "verdict_values": list(LIVE_QA_VERDICTS),
+            "cases": cases,
+            "summary": summary_counts,
+        }
+        return validate_instance("telegram-live-qa-evidence-packet-v1", packet)
 
     def change_manifest(
         self,

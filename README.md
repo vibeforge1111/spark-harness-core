@@ -39,6 +39,7 @@ The kernel can now emit and validate the records Spark needs before promoting a 
 - `readiness-score-v1`: scores execution, tools, context, lifecycle, observability, verification, and governance, then derives blocked, private-ready, release-candidate, or public-ready status from evidence and gates.
 - `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence.
 - `self-evolution-run-v1`: ties experience, target components, manifests, eval packs, commands, readiness, and promotion verdict into one auditable run.
+- `spark.telegram_live_qa_evidence_packet.v1`: records the 100-prompt Telegram live QA container with observed replies, side-effect checks, ledger/trace/screenshot refs, session evidence, verdicts, and release claim boundary.
 
 ## Quick Check
 
@@ -49,6 +50,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas
 PYTHONPATH=src python3 -m spark_harness_core.cli resource-registry
 PYTHONPATH=src python3 -m spark_harness_core.cli experience-index
+PYTHONPATH=src python3 -m spark_harness_core.cli telegram-live-qa-packet --include-risky
 PYTHONPATH=src python3 -m spark_harness_core.cli readiness-score --category execution=1 --category tools=1 --category context=1 --category lifecycle=1 --category observability=1 --category verification=1 --category governance=1 --gate zero_high_agency_legacy_local_gates=true
 PYTHONPATH=src python3 -m spark_harness_core.cli self-evolution-run
 ```

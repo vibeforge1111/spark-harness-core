@@ -248,6 +248,83 @@ export interface HarnessRunV1 {
         remaining_risks?: string[];
     };
 }
+export type TelegramLiveQaRisk = 'safe' | 'mission' | 'writes_files' | 'external';
+export type TelegramLiveQaVerdict = 'pass' | 'fail' | 'blocked' | 'needs-retest' | 'untested';
+export interface TelegramLiveQaEvidencePacketV1 {
+    schema_version: 'spark.telegram_live_qa_evidence_packet.v1';
+    generated_at: string;
+    run_id: string;
+    title: string;
+    catalog: string;
+    selection: {
+        suite: string | null;
+        include_risky: boolean;
+        case_count: number;
+        risk_counts: Record<TelegramLiveQaRisk, number>;
+    };
+    authority_claim_boundary: string;
+    required_session_evidence: {
+        profile: string | null;
+        tester: string | null;
+        bot_runtime_commit: string | null;
+        harness_core_commit: string | null;
+        spark_os_compile_ref: string | null;
+        spark_live_status_ref: string | null;
+        spark_verify_provenance_ref: string | null;
+        telegram_chat_evidence_ref: string | null;
+        overall_verdict: TelegramLiveQaVerdict;
+        follow_up_commits: string[];
+        pr_links: string[];
+        remaining_risks: string[];
+    };
+    verdict_values: TelegramLiveQaVerdict[];
+    cases: Array<{
+        ordinal: number;
+        id: string;
+        suite: string;
+        risk: TelegramLiveQaRisk;
+        expected_route: string;
+        expected_outcome: string;
+        verdict: TelegramLiveQaVerdict;
+        actual_route: string | null;
+        actual_outcome: string | null;
+        observed_turns: Array<{
+            turn_index: number;
+            prompt: string;
+            reply: string | null;
+            reply_timestamp: string | null;
+        }>;
+        side_effects: {
+            files_changed: boolean | null;
+            memory_written: boolean | null;
+            mission_started: boolean | null;
+            external_network_called: boolean | null;
+            pr_opened: boolean | null;
+            publish_or_deploy_started: boolean | null;
+            schedule_changed: boolean | null;
+            tool_or_browser_used: boolean | null;
+        };
+        evidence_refs: {
+            authorization_ledgers: string[];
+            tool_ledgers: string[];
+            traces: string[];
+            runtime_status: string[];
+            screenshots: string[];
+            commits: string[];
+            prs: string[];
+        };
+        issue: string | null;
+        fix_commit: string | null;
+        retest_required: boolean;
+    }>;
+    summary: {
+        pass: number;
+        fail: number;
+        blocked: number;
+        needs_retest: number;
+        untested: number;
+    };
+}
 export interface HarnessComponentV1 {
     schema_version: 'harness-component-v1';
     component_id: string;
@@ -390,6 +467,15 @@ export declare function createHarnessCoreHarnessRun(input: {
     summary: string;
     remaining_risks?: string[];
 }): HarnessRunV1;
+export declare function createTelegramLiveQaEvidencePacket(input: {
+    generated_at?: string;
+    run_id?: string;
+    title?: string;
+    catalog: string;
+    suite?: string | null;
+    include_risky?: boolean;
+    cases: TelegramLiveQaEvidencePacketV1['cases'];
+}): TelegramLiveQaEvidencePacketV1;
 export declare function createHarnessCoreChangeManifest(input: {
     id: string;
     target_component: HarnessComponentV1;

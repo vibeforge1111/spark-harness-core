@@ -13,6 +13,7 @@ exports.createHarnessCoreExperienceIndex = createHarnessCoreExperienceIndex;
 exports.createHarnessCoreResourceRegistry = createHarnessCoreResourceRegistry;
 exports.createHarnessCoreEvaluationPack = createHarnessCoreEvaluationPack;
 exports.createHarnessCoreHarnessRun = createHarnessCoreHarnessRun;
+exports.createTelegramLiveQaEvidencePacket = createTelegramLiveQaEvidencePacket;
 exports.createHarnessCoreChangeManifest = createHarnessCoreChangeManifest;
 exports.createHarnessCoreSelfEvolutionRun = createHarnessCoreSelfEvolutionRun;
 exports.HARNESS_CORE_RISK_ORDER = Object.freeze({
@@ -299,6 +300,66 @@ function createHarnessCoreHarnessRun(input) {
             summary: input.summary,
             ...(input.remaining_risks ? { remaining_risks: input.remaining_risks } : {})
         }
+    };
+}
+function createTelegramLiveQaEvidencePacket(input) {
+    const generatedAt = input.generated_at || new Date().toISOString();
+    const riskCounts = {
+        safe: 0,
+        mission: 0,
+        writes_files: 0,
+        external: 0
+    };
+    const summary = {
+        pass: 0,
+        fail: 0,
+        blocked: 0,
+        needs_retest: 0,
+        untested: 0
+    };
+    for (const entry of input.cases) {
+        riskCounts[entry.risk] += 1;
+        if (entry.verdict === 'needs-retest') {
+            summary.needs_retest += 1;
+        }
+        else {
+            summary[entry.verdict] += 1;
+        }
+    }
+    return {
+        schema_version: 'spark.telegram_live_qa_evidence_packet.v1',
+        generated_at: generatedAt,
+        run_id: input.run_id || `telegram-live-qa-${generatedAt.replace(/[:.]/g, '-')}`,
+        title: input.title || 'Spark Telegram Live QA Evidence Packet',
+        catalog: input.catalog,
+        selection: {
+            suite: input.suite?.trim() || null,
+            include_risky: Boolean(input.include_risky),
+            case_count: input.cases.length,
+            risk_counts: riskCounts
+        },
+        authority_claim_boundary: [
+            'This packet is a live QA evidence container.',
+            'It does not prove release readiness until each case has observed replies, side-effect checks, ledger or trace evidence where required, and a human verdict.',
+            'It must not be treated as authority to execute high-agency actions.'
+        ].join(' '),
+        required_session_evidence: {
+            profile: null,
+            tester: null,
+            bot_runtime_commit: null,
+            harness_core_commit: null,
+            spark_os_compile_ref: null,
+            spark_live_status_ref: null,
+            spark_verify_provenance_ref: null,
+            telegram_chat_evidence_ref: null,
+            overall_verdict: 'untested',
+            follow_up_commits: [],
+            pr_links: [],
+            remaining_risks: []
+        },
+        verdict_values: ['pass', 'fail', 'blocked', 'needs-retest', 'untested'],
+        cases: input.cases,
+        summary
     };
 }
 const PROTECTED_HARNESS_COMPONENT_TYPES = new Set([

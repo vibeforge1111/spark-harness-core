@@ -884,6 +884,39 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(run["verdict"]["status"], "passed")
         validate_instance("harness-run-v1", run)
 
+    def test_kernel_builds_telegram_live_qa_evidence_packet(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        case = kernel.telegram_live_qa_case(
+            ordinal=1,
+            case_id="genesis-001",
+            suite="genesis_normal_conversation",
+            risk="safe",
+            expected_route="chat_think_with_me",
+            expected_outcome="Gives advice. Must not launch a mission.",
+            prompts=["Should we use the startup operator more?"],
+        )
+        packet = kernel.telegram_live_qa_evidence_packet(
+            cases=[case],
+            catalog="genesis-live-telegram-100.json",
+            title="Spark Genesis Telegram Live QA Evidence Packet",
+            include_risky=True,
+            generated_at="2026-06-02T00:00:00Z",
+        )
+
+        self.assertEqual(packet["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
+        self.assertEqual(packet["selection"]["case_count"], 1)
+        self.assertEqual(packet["selection"]["risk_counts"]["safe"], 1)
+        self.assertEqual(packet["summary"]["untested"], 1)
+        self.assertEqual(packet["cases"][0]["verdict"], "untested")
+        self.assertIsNone(packet["cases"][0]["observed_turns"][0]["reply"])
+        self.assertIn("does not prove release readiness", packet["authority_claim_boundary"])
+        validate_instance("telegram-live-qa-evidence-packet-v1", packet)
+
+        invalid = clone(packet)
+        invalid["summary"]["untested"] = -1
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("telegram-live-qa-evidence-packet-v1", invalid)
+
     def test_kernel_change_manifest_enforces_protected_component_approval(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
         protected_component = kernel.component(
@@ -925,6 +958,7 @@ class KernelContractTests(unittest.TestCase):
             ("experience-index", "experience-index-v1"),
             ("evaluation-pack", "evaluation-pack-v1"),
             ("harness-run --status passed --summary harness-run-proof", "harness-run-v1"),
+            ("telegram-live-qa-packet --include-risky", "telegram-live-qa-evidence-packet-v1"),
             ("change-manifest", "change-manifest-v1"),
             (
                 "readiness-score --category execution=1 --category tools=1 --category context=1 "

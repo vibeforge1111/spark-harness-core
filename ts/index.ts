@@ -392,6 +392,85 @@ export interface HarnessRunV1 {
   };
 }
 
+export type TelegramLiveQaRisk = 'safe' | 'mission' | 'writes_files' | 'external';
+export type TelegramLiveQaVerdict = 'pass' | 'fail' | 'blocked' | 'needs-retest' | 'untested';
+
+export interface TelegramLiveQaEvidencePacketV1 {
+  schema_version: 'spark.telegram_live_qa_evidence_packet.v1';
+  generated_at: string;
+  run_id: string;
+  title: string;
+  catalog: string;
+  selection: {
+    suite: string | null;
+    include_risky: boolean;
+    case_count: number;
+    risk_counts: Record<TelegramLiveQaRisk, number>;
+  };
+  authority_claim_boundary: string;
+  required_session_evidence: {
+    profile: string | null;
+    tester: string | null;
+    bot_runtime_commit: string | null;
+    harness_core_commit: string | null;
+    spark_os_compile_ref: string | null;
+    spark_live_status_ref: string | null;
+    spark_verify_provenance_ref: string | null;
+    telegram_chat_evidence_ref: string | null;
+    overall_verdict: TelegramLiveQaVerdict;
+    follow_up_commits: string[];
+    pr_links: string[];
+    remaining_risks: string[];
+  };
+  verdict_values: TelegramLiveQaVerdict[];
+  cases: Array<{
+    ordinal: number;
+    id: string;
+    suite: string;
+    risk: TelegramLiveQaRisk;
+    expected_route: string;
+    expected_outcome: string;
+    verdict: TelegramLiveQaVerdict;
+    actual_route: string | null;
+    actual_outcome: string | null;
+    observed_turns: Array<{
+      turn_index: number;
+      prompt: string;
+      reply: string | null;
+      reply_timestamp: string | null;
+    }>;
+    side_effects: {
+      files_changed: boolean | null;
+      memory_written: boolean | null;
+      mission_started: boolean | null;
+      external_network_called: boolean | null;
+      pr_opened: boolean | null;
+      publish_or_deploy_started: boolean | null;
+      schedule_changed: boolean | null;
+      tool_or_browser_used: boolean | null;
+    };
+    evidence_refs: {
+      authorization_ledgers: string[];
+      tool_ledgers: string[];
+      traces: string[];
+      runtime_status: string[];
+      screenshots: string[];
+      commits: string[];
+      prs: string[];
+    };
+    issue: string | null;
+    fix_commit: string | null;
+    retest_required: boolean;
+  }>;
+  summary: {
+    pass: number;
+    fail: number;
+    blocked: number;
+    needs_retest: number;
+    untested: number;
+  };
+}
+
 export interface HarnessComponentV1 {
   schema_version: 'harness-component-v1';
   component_id: string;
@@ -851,6 +930,74 @@ export function createHarnessCoreHarnessRun(input: {
       summary: input.summary,
       ...(input.remaining_risks ? { remaining_risks: input.remaining_risks } : {})
     }
+  };
+}
+
+export function createTelegramLiveQaEvidencePacket(input: {
+  generated_at?: string;
+  run_id?: string;
+  title?: string;
+  catalog: string;
+  suite?: string | null;
+  include_risky?: boolean;
+  cases: TelegramLiveQaEvidencePacketV1['cases'];
+}): TelegramLiveQaEvidencePacketV1 {
+  const generatedAt = input.generated_at || new Date().toISOString();
+  const riskCounts: Record<TelegramLiveQaRisk, number> = {
+    safe: 0,
+    mission: 0,
+    writes_files: 0,
+    external: 0
+  };
+  const summary: TelegramLiveQaEvidencePacketV1['summary'] = {
+    pass: 0,
+    fail: 0,
+    blocked: 0,
+    needs_retest: 0,
+    untested: 0
+  };
+  for (const entry of input.cases) {
+    riskCounts[entry.risk] += 1;
+    if (entry.verdict === 'needs-retest') {
+      summary.needs_retest += 1;
+    } else {
+      summary[entry.verdict] += 1;
+    }
+  }
+  return {
+    schema_version: 'spark.telegram_live_qa_evidence_packet.v1',
+    generated_at: generatedAt,
+    run_id: input.run_id || `telegram-live-qa-${generatedAt.replace(/[:.]/g, '-')}`,
+    title: input.title || 'Spark Telegram Live QA Evidence Packet',
+    catalog: input.catalog,
+    selection: {
+      suite: input.suite?.trim() || null,
+      include_risky: Boolean(input.include_risky),
+      case_count: input.cases.length,
+      risk_counts: riskCounts
+    },
+    authority_claim_boundary: [
+      'This packet is a live QA evidence container.',
+      'It does not prove release readiness until each case has observed replies, side-effect checks, ledger or trace evidence where required, and a human verdict.',
+      'It must not be treated as authority to execute high-agency actions.'
+    ].join(' '),
+    required_session_evidence: {
+      profile: null,
+      tester: null,
+      bot_runtime_commit: null,
+      harness_core_commit: null,
+      spark_os_compile_ref: null,
+      spark_live_status_ref: null,
+      spark_verify_provenance_ref: null,
+      telegram_chat_evidence_ref: null,
+      overall_verdict: 'untested',
+      follow_up_commits: [],
+      pr_links: [],
+      remaining_risks: []
+    },
+    verdict_values: ['pass', 'fail', 'blocked', 'needs-retest', 'untested'],
+    cases: input.cases,
+    summary
   };
 }
 
