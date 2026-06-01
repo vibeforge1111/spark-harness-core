@@ -4,15 +4,17 @@
   "description": "Spark Genesis Harness canonical runtime contracts",
   "private": true,
   "main": "ts-dist/index.js",
+  "module": "ts-dist-esm/index.mjs",
   "types": "ts-dist/index.d.ts",
   "files": [
     "ts-dist",
+    "ts-dist-esm",
     "schemas",
     "README.md",
     "docs"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json && node -e \"const fs=require('fs'); if (fs.existsSync('ts-dist-esm/index.mjs')) fs.rmSync('ts-dist-esm/index.mjs'); fs.renameSync('ts-dist-esm/index.js','ts-dist-esm/index.mjs')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

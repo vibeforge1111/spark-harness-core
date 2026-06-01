@@ -1,17 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.HARNESS_CORE_RISK_ORDER = void 0;
-exports.safeHarnessCoreId = safeHarnessCoreId;
-exports.createHarnessCoreTraceRef = createHarnessCoreTraceRef;
-exports.createHarnessCoreArtifactRef = createHarnessCoreArtifactRef;
-exports.createHarnessCoreEvidenceRef = createHarnessCoreEvidenceRef;
-exports.actionTypeForHarnessMutation = actionTypeForHarnessMutation;
-exports.riskTierForHarnessMutation = riskTierForHarnessMutation;
-exports.createHarnessCoreActionEnvelopeVNext = createHarnessCoreActionEnvelopeVNext;
-exports.createHarnessCoreReadinessScore = createHarnessCoreReadinessScore;
-exports.createHarnessCoreExperienceIndex = createHarnessCoreExperienceIndex;
-exports.createHarnessCoreResourceRegistry = createHarnessCoreResourceRegistry;
-exports.HARNESS_CORE_RISK_ORDER = Object.freeze({
+export const HARNESS_CORE_RISK_ORDER = Object.freeze({
     none: 0,
     read: 1,
     low: 2,
@@ -19,13 +6,13 @@ exports.HARNESS_CORE_RISK_ORDER = Object.freeze({
     high: 4,
     critical: 5
 });
-function safeHarnessCoreId(prefix, raw) {
+export function safeHarnessCoreId(prefix, raw) {
     const normalized = raw.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
     const suffix = normalized || Math.random().toString(16).slice(2, 14);
     const id = suffix.startsWith(`${prefix}:`) || suffix.startsWith(`${prefix}_`) ? suffix : `${prefix}:${suffix}`;
     return id.slice(0, 128);
 }
-function createHarnessCoreTraceRef(input) {
+export function createHarnessCoreTraceRef(input) {
     return {
         id: safeHarnessCoreId('trace', input.id),
         ...(input.href ? { href: input.href } : {}),
@@ -33,7 +20,7 @@ function createHarnessCoreTraceRef(input) {
         summary: input.summary
     };
 }
-function createHarnessCoreArtifactRef(input) {
+export function createHarnessCoreArtifactRef(input) {
     return {
         id: safeHarnessCoreId('artifact', input.id),
         kind: input.kind,
@@ -43,7 +30,7 @@ function createHarnessCoreArtifactRef(input) {
         summary: input.summary
     };
 }
-function createHarnessCoreEvidenceRef(input) {
+export function createHarnessCoreEvidenceRef(input) {
     return {
         id: safeHarnessCoreId('evidence', input.id),
         kind: input.kind,
@@ -53,7 +40,7 @@ function createHarnessCoreEvidenceRef(input) {
         trace_refs: input.trace_refs || []
     };
 }
-function actionTypeForHarnessMutation(mutationClass, publishes = false) {
+export function actionTypeForHarnessMutation(mutationClass, publishes = false) {
     if (publishes || mutationClass === 'publishes')
         return 'publish';
     switch (mutationClass) {
@@ -77,7 +64,7 @@ function actionTypeForHarnessMutation(mutationClass, publishes = false) {
             return 'run_command';
     }
 }
-function riskTierForHarnessMutation(input) {
+export function riskTierForHarnessMutation(input) {
     if (input.publishes || input.mutationClass === 'publishes')
         return 'high';
     if (input.externalNetwork || input.mutationClass === 'external_network')
@@ -100,7 +87,7 @@ function riskTierForHarnessMutation(input) {
             return 'medium';
     }
 }
-function createHarnessCoreActionEnvelopeVNext(input) {
+export function createHarnessCoreActionEnvelopeVNext(input) {
     const createdAt = input.createdAt || new Date().toISOString();
     const requestId = input.requestId?.trim() || `${input.source}:${createdAt}`;
     const actorKind = input.actorKind || 'human';
@@ -111,7 +98,7 @@ function createHarnessCoreActionEnvelopeVNext(input) {
         externalNetwork: input.externalNetwork
     });
     const actionType = actionTypeForHarnessMutation(input.mutationClass, input.publishes);
-    const requiresConfirmation = input.requiresHumanConfirmation === true || exports.HARNESS_CORE_RISK_ORDER[riskTier] >= exports.HARNESS_CORE_RISK_ORDER.high;
+    const requiresConfirmation = input.requiresHumanConfirmation === true || HARNESS_CORE_RISK_ORDER[riskTier] >= HARNESS_CORE_RISK_ORDER.high;
     const turnId = safeHarnessCoreId('turn', `${input.surface}:${input.source}:${requestId}`);
     const trace = createHarnessCoreTraceRef({
         id: `${input.surface}:${input.source}:${requestId}`,
@@ -196,7 +183,7 @@ function createHarnessCoreActionEnvelopeVNext(input) {
         trace
     };
 }
-function createHarnessCoreReadinessScore(input) {
+export function createHarnessCoreReadinessScore(input) {
     const values = Object.values(input.categories).map((category) => category.score);
     const score = values.length ? Number((values.reduce((sum, item) => sum + item, 0) / values.length).toFixed(4)) : 0;
     const blockers = Object.values(input.categories).some((category) => category.blockers.length > 0);
@@ -233,7 +220,7 @@ function createHarnessCoreReadinessScore(input) {
         }
     };
 }
-function createHarnessCoreExperienceIndex(input) {
+export function createHarnessCoreExperienceIndex(input) {
     return {
         schema_version: 'experience-index-v1',
         index_id: safeHarnessCoreId('experience-index', input.id),
@@ -248,7 +235,7 @@ function createHarnessCoreExperienceIndex(input) {
         ]
     };
 }
-function createHarnessCoreResourceRegistry(input) {
+export function createHarnessCoreResourceRegistry(input) {
     return {
         schema_version: 'resource-registry-v1',
         registry_id: safeHarnessCoreId('resource-registry', input.id),

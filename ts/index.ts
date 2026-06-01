@@ -327,6 +327,19 @@ export interface ResourceRegistryV1 {
   }>;
 }
 
+export type HarnessCoreActionMutationClass =
+  | 'none'
+  | 'read_only'
+  | 'writes_memory'
+  | 'writes_files'
+  | 'launches_mission'
+  | 'controls_mission'
+  | 'creates_schedule'
+  | 'deletes_schedule'
+  | 'creates_chip'
+  | 'publishes'
+  | 'external_network';
+
 export const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>> = Object.freeze({
   none: 0,
   read: 1,
@@ -390,6 +403,174 @@ export function createHarnessCoreEvidenceRef(input: {
     summary: input.summary,
     confidence: input.confidence,
     trace_refs: input.trace_refs || []
+  };
+}
+
+export function actionTypeForHarnessMutation(mutationClass: HarnessCoreActionMutationClass, publishes = false): HarnessCoreActionType {
+  if (publishes || mutationClass === 'publishes') return 'publish';
+  switch (mutationClass) {
+    case 'none':
+    case 'read_only':
+      return 'read';
+    case 'writes_memory':
+      return 'write_memory';
+    case 'writes_files':
+      return 'edit_file';
+    case 'launches_mission':
+      return 'launch_mission';
+    case 'creates_schedule':
+    case 'deletes_schedule':
+      return 'schedule';
+    case 'creates_chip':
+      return 'create_domain_chip';
+    case 'external_network':
+      return 'external_api_call';
+    default:
+      return 'run_command';
+  }
+}
+
+export function riskTierForHarnessMutation(input: {
+  mutationClass: HarnessCoreActionMutationClass;
+  publishes?: boolean;
+  externalNetwork?: boolean;
+}): HarnessCoreRiskTier {
+  if (input.publishes || input.mutationClass === 'publishes') return 'high';
+  if (input.externalNetwork || input.mutationClass === 'external_network') return 'medium';
+  switch (input.mutationClass) {
+    case 'none':
+      return 'none';
+    case 'read_only':
+      return 'read';
+    case 'writes_memory':
+      return 'low';
+    case 'writes_files':
+    case 'launches_mission':
+    case 'controls_mission':
+    case 'creates_schedule':
+    case 'deletes_schedule':
+    case 'creates_chip':
+      return 'medium';
+    default:
+      return 'medium';
+  }
+}
+
+export function createHarnessCoreActionEnvelopeVNext(input: {
+  surface: HarnessCoreSurface;
+  ownerSystem: string;
+  toolName: string;
+  mutationClass: HarnessCoreActionMutationClass;
+  source: string;
+  reason: string;
+  requestId?: string | null;
+  actorKind?: 'human' | 'agent' | 'system';
+  actorIdRef?: string | null;
+  target?: string | null;
+  createdAt?: string;
+  confidence?: number;
+  riskTier?: HarnessCoreRiskTier;
+  publishes?: boolean;
+  externalNetwork?: boolean;
+  requiresHumanConfirmation?: boolean;
+}): TurnIntentEnvelopeVNext {
+  const createdAt = input.createdAt || new Date().toISOString();
+  const requestId = input.requestId?.trim() || `${input.source}:${createdAt}`;
+  const actorKind = input.actorKind || 'human';
+  const confidence = typeof input.confidence === 'number' ? input.confidence : actorKind === 'human' ? 0.95 : 0.9;
+  const riskTier = input.riskTier || riskTierForHarnessMutation({
+    mutationClass: input.mutationClass,
+    publishes: input.publishes,
+    externalNetwork: input.externalNetwork
+  });
+  const actionType = actionTypeForHarnessMutation(input.mutationClass, input.publishes);
+  const requiresConfirmation =
+    input.requiresHumanConfirmation === true || HARNESS_CORE_RISK_ORDER[riskTier] >= HARNESS_CORE_RISK_ORDER.high;
+  const turnId = safeHarnessCoreId('turn', `${input.surface}:${input.source}:${requestId}`);
+  const trace = createHarnessCoreTraceRef({
+    id: `${input.surface}:${input.source}:${requestId}`,
+    summary: input.reason,
+    redaction_class: 'metadata_only'
+  });
+  const actionId = safeHarnessCoreId('action', `${turnId}:${input.toolName}`);
+  const target = input.target?.trim() || input.toolName;
+  const action: HarnessCoreProposedAction = {
+    action_id: actionId,
+    capability_id: safeHarnessCoreId('capability', `${input.ownerSystem}:${input.toolName}`),
+    action_type: actionType,
+    risk_tier: riskTier,
+    summary: input.reason,
+    args_ref: createHarnessCoreArtifactRef({
+      id: `${actionId}:args`,
+      kind: 'tool_args',
+      path_or_uri: `${input.surface}://actions/${encodeURIComponent(input.toolName)}/${encodeURIComponent(requestId)}`,
+      summary: `${input.surface} action arguments are retained by the surface adapter.`,
+      redaction_class: 'metadata_only'
+    }),
+    requires_confirmation: requiresConfirmation
+  };
+  const selectedMove: HarnessCoreMoveType =
+    requiresConfirmation ? 'confirm_action' : actionType === 'read' ? 'read_current_state' : 'execute_action';
+  const authorityState: HarnessCoreAuthorityState =
+    selectedMove === 'confirm_action' ? 'confirmation_required' : selectedMove === 'read_current_state' ? 'read_only' : 'executable';
+  const evidenceKind: HarnessCoreEvidenceKind = actorKind === 'human' ? 'fresh_user_intent' : 'surface_signal';
+  const evidence = [
+    createHarnessCoreEvidenceRef({
+      id: `${turnId}:fresh-authority`,
+      kind: evidenceKind,
+      source: input.source,
+      summary: input.reason,
+      confidence,
+      trace_refs: [trace]
+    }),
+    createHarnessCoreEvidenceRef({
+      id: `${turnId}:surface-action`,
+      kind: 'surface_signal',
+      source: input.surface,
+      summary: `${input.surface} submitted ${input.toolName} for ${target}.`,
+      confidence: Math.min(confidence, 0.9),
+      trace_refs: [trace]
+    })
+  ];
+
+  return {
+    schema_version: 'turn-intent-envelope-vnext',
+    turn_id: turnId,
+    created_at: createdAt,
+    surface: input.surface,
+    actor: {
+      kind: actorKind,
+      id_ref: input.actorIdRef?.trim() || `${input.surface}-${actorKind}`,
+      redaction_class: 'metadata_only'
+    },
+    raw_turn_ref: trace,
+    selected_move: selectedMove,
+    intent_summary: input.reason,
+    freshness: {
+      fresh_user_intent_present: actorKind === 'human',
+      stale_state_used_as_authority: false,
+      memory_used_as_instruction: false,
+      pending_state_used_as_authority: false
+    },
+    evidence,
+    action_authority: {
+      state: authorityState,
+      risk_tier: riskTier,
+      confidence,
+      requires_human_confirmation: requiresConfirmation,
+      reason: requiresConfirmation
+        ? 'Harness Core requires confirmation before this high-risk action can execute.'
+        : 'Fresh surface evidence authorizes this action through Harness Core.'
+    },
+    proposed_actions: [action],
+    blocked_routes: [],
+    context_policy: {
+      raw_private_text_in_context: false,
+      store_raw_turn: false,
+      summary_required: true,
+      offload_artifacts: []
+    },
+    trace
   };
 }
 

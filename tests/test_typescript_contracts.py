@@ -82,6 +82,16 @@ class TypeScriptContractTests(unittest.TestCase):
                 }
               }]
             });
+            const envelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'spawner',
+              ownerSystem: 'spawner-ui',
+              toolName: 'spawner.dispatch',
+              mutationClass: 'launches_mission',
+              source: 'execution-panel',
+              reason: 'User started execution from Spawner.',
+              requestId: 'dispatch-vnext-test',
+              target: 'mission-vnext-test'
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -89,7 +99,8 @@ class TypeScriptContractTests(unittest.TestCase):
               evidence,
               readiness,
               experience,
-              registry
+              registry,
+              envelope
             }));
             """
         )
@@ -109,6 +120,47 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["readiness"]["overall"]["status"], "release_candidate")
         self.assertEqual(payload["experience"]["entries"][0]["entry_type"], "test_result")
         self.assertEqual(payload["registry"]["resources"][0]["resource_type"], "harness_spec")
+        self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
+        self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")
+        self.assertEqual(
+            payload["envelope"]["proposed_actions"][0]["capability_id"],
+            "capability:spawner-ui:spawner.dispatch",
+        )
+        self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "launch_mission")
+
+    def test_esm_package_face_exports_action_envelope_helper(self) -> None:
+        script = textwrap.dedent(
+            """
+            (async () => {
+              const core = await import('./ts-dist-esm/index.mjs');
+              const envelope = core.createHarnessCoreActionEnvelopeVNext({
+                surface: 'spawner',
+                ownerSystem: 'spawner-ui',
+                toolName: 'spawner.schedule.create',
+                mutationClass: 'creates_schedule',
+                source: 'mission-board',
+                reason: 'User scheduled a Spark action.',
+                requestId: 'schedule-vnext-test'
+              });
+              console.log(JSON.stringify(envelope));
+            })().catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+            """
+        )
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(payload["surface"], "spawner")
+        self.assertEqual(payload["proposed_actions"][0]["action_type"], "schedule")
 
 
 if __name__ == "__main__":

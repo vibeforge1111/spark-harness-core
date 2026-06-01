@@ -205,6 +205,7 @@ export interface ResourceRegistryV1 {
         };
     }>;
 }
+export type HarnessCoreActionMutationClass = 'none' | 'read_only' | 'writes_memory' | 'writes_files' | 'launches_mission' | 'controls_mission' | 'creates_schedule' | 'deletes_schedule' | 'creates_chip' | 'publishes' | 'external_network';
 export declare const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>>;
 export declare function safeHarnessCoreId(prefix: string, raw: string): string;
 export declare function createHarnessCoreTraceRef(input: {
@@ -229,6 +230,30 @@ export declare function createHarnessCoreEvidenceRef(input: {
     confidence: number;
     trace_refs?: HarnessCoreTraceRef[];
 }): HarnessCoreEvidenceRef;
+export declare function actionTypeForHarnessMutation(mutationClass: HarnessCoreActionMutationClass, publishes?: boolean): HarnessCoreActionType;
+export declare function riskTierForHarnessMutation(input: {
+    mutationClass: HarnessCoreActionMutationClass;
+    publishes?: boolean;
+    externalNetwork?: boolean;
+}): HarnessCoreRiskTier;
+export declare function createHarnessCoreActionEnvelopeVNext(input: {
+    surface: HarnessCoreSurface;
+    ownerSystem: string;
+    toolName: string;
+    mutationClass: HarnessCoreActionMutationClass;
+    source: string;
+    reason: string;
+    requestId?: string | null;
+    actorKind?: 'human' | 'agent' | 'system';
+    actorIdRef?: string | null;
+    target?: string | null;
+    createdAt?: string;
+    confidence?: number;
+    riskTier?: HarnessCoreRiskTier;
+    publishes?: boolean;
+    externalNetwork?: boolean;
+    requiresHumanConfirmation?: boolean;
+}): TurnIntentEnvelopeVNext;
 export declare function createHarnessCoreReadinessScore(input: {
     id: string;
     target_kind: ReadinessScoreV1['target']['kind'];
