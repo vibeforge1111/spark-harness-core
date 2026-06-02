@@ -273,6 +273,42 @@ class TypeScriptContractTests(unittest.TestCase):
                 publish_allowed: false
               }
             });
+            const finalizedAuthorizedLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: authorizedGovernorDecision.tool_ledgers[0],
+              status: 'success',
+              summary: 'Spawner dispatch completed after Governor allow authorization.',
+              output_path_or_uri: 'spawner://missions/dispatch-vnext-test/result'
+            });
+            const interruptedEnvelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'telegram',
+              ownerSystem: 'spark-publisher',
+              toolName: 'spark.publish',
+              mutationClass: 'publishes',
+              source: 'telegram',
+              reason: 'Publishing requires explicit approval before execution.',
+              requestId: 'publish-vnext-test'
+            });
+            const interruptedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: interruptedEnvelope,
+              tool_name: 'spark.publish'
+            });
+            let blockedFinalizeError = '';
+            try {
+              core.finalizeHarnessCoreToolCallLedger({
+                ledger: interruptedGovernorDecision.tool_ledgers[0],
+                status: 'success',
+                summary: 'This must not be representable before approval.',
+                output_path_or_uri: 'telegram://publish/success'
+              });
+            } catch (error) {
+              blockedFinalizeError = String(error && error.message || error);
+            }
+            const interruptedNotStartedLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: interruptedGovernorDecision.tool_ledgers[0],
+              status: 'not_started',
+              summary: 'Publish was interrupted before execution.',
+              output_path_or_uri: 'telegram://publish/not-started'
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -290,7 +326,11 @@ class TypeScriptContractTests(unittest.TestCase):
               selfEvolution,
               envelope,
               governorDecision,
-              authorizedGovernorDecision
+              authorizedGovernorDecision,
+              finalizedAuthorizedLedger,
+              interruptedGovernorDecision,
+              blockedFinalizeError,
+              interruptedNotStartedLedger
             }));
             """
         )
@@ -345,6 +385,13 @@ class TypeScriptContractTests(unittest.TestCase):
             payload["authorizedGovernorDecision"]["tool_ledgers"][0]["authorization"]["capability_id"],
             "capability:spawner-ui:spawner.dispatch",
         )
+        self.assertEqual(payload["finalizedAuthorizedLedger"]["result"]["status"], "success")
+        self.assertEqual(payload["finalizedAuthorizedLedger"]["lifecycle"][-1]["verdict"], "passed")
+        self.assertEqual(payload["interruptedGovernorDecision"]["outcome"], "interrupt")
+        self.assertEqual(payload["interruptedGovernorDecision"]["authorizations"][0]["verdict"], "interrupt")
+        self.assertIn("allow authorization", payload["blockedFinalizeError"])
+        self.assertEqual(payload["interruptedNotStartedLedger"]["result"]["status"], "not_started")
+        self.assertEqual(payload["interruptedNotStartedLedger"]["lifecycle"][-1]["verdict"], "skipped")
 
     def test_esm_package_face_exports_action_envelope_helper(self) -> None:
         script = textwrap.dedent(
@@ -360,7 +407,10 @@ class TypeScriptContractTests(unittest.TestCase):
                 reason: 'User scheduled a Spark action.',
                 requestId: 'schedule-vnext-test'
               });
-              console.log(JSON.stringify(envelope));
+              console.log(JSON.stringify({
+                envelope,
+                hasFinalizer: typeof core.finalizeHarnessCoreToolCallLedger === 'function'
+              }));
             })().catch((error) => {
               console.error(error);
               process.exit(1);
@@ -375,9 +425,10 @@ class TypeScriptContractTests(unittest.TestCase):
             text=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["schema_version"], "turn-intent-envelope-vnext")
-        self.assertEqual(payload["surface"], "spawner")
-        self.assertEqual(payload["proposed_actions"][0]["action_type"], "schedule")
+        self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(payload["envelope"]["surface"], "spawner")
+        self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "schedule")
+        self.assertTrue(payload["hasFinalizer"])
 
 
 if __name__ == "__main__":

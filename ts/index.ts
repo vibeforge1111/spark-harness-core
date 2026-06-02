@@ -607,6 +607,13 @@ export const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, numbe
   critical: 5
 });
 
+const HARNESS_CORE_EXECUTED_TOOL_STATUSES = new Set<ToolCallLedgerV1['result']['status']>([
+  'success',
+  'failure',
+  'partial',
+  'rolled_back'
+]);
+
 export function safeHarnessCoreId(prefix: string, raw: string): string {
   const normalized = raw.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
   const suffix = normalized || Math.random().toString(16).slice(2, 14);
@@ -1062,6 +1069,71 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
     reply_style: input.reply_style,
     reply_instruction: input.reply_instruction
   });
+}
+
+function executeStageVerdictForHarnessStatus(status: ToolCallLedgerV1['result']['status']): ToolCallLedgerV1['lifecycle'][number]['verdict'] {
+  if (status === 'not_started') return 'skipped';
+  if (status === 'success' || status === 'partial') return 'passed';
+  return 'failed';
+}
+
+function assertHarnessCoreExecutionStatusAuthorized(
+  authorizationVerdict: AuthorizationDecisionV1['verdict'],
+  status: ToolCallLedgerV1['result']['status']
+): void {
+  if (HARNESS_CORE_EXECUTED_TOOL_STATUSES.has(status) && authorizationVerdict !== 'allow') {
+    throw new Error(
+      'Tool execution status requires allow authorization; blocked or interrupted actions may only record a not_started ledger.'
+    );
+  }
+}
+
+export function finalizeHarnessCoreToolCallLedger(input: {
+  ledger: ToolCallLedgerV1;
+  status: ToolCallLedgerV1['result']['status'];
+  summary: string;
+  output_ref?: HarnessCoreArtifactRef;
+  output_path_or_uri?: string;
+  error_ref?: HarnessCoreArtifactRef;
+  rollback_ref?: HarnessCoreArtifactRef;
+  now?: string;
+}): ToolCallLedgerV1 {
+  assertHarnessCoreExecutionStatusAuthorized(input.ledger.authorization.verdict, input.status);
+  const now = input.now || new Date().toISOString();
+  const executeStage: ToolCallLedgerV1['lifecycle'][number] = {
+    stage: 'execute',
+    at: now,
+    verdict: executeStageVerdictForHarnessStatus(input.status),
+    summary: input.summary
+  };
+  const lifecycle = [...input.ledger.lifecycle];
+  if (lifecycle.length > 0 && lifecycle[lifecycle.length - 1].stage === 'execute') {
+    lifecycle[lifecycle.length - 1] = executeStage;
+  } else {
+    lifecycle.push(executeStage);
+  }
+  const sanitizedOutputRef = input.output_ref || createHarnessCoreArtifactRef({
+    id: `${input.ledger.ledger_id}:${input.status}:output`,
+    kind: 'tool_output',
+    path_or_uri: input.output_path_or_uri || `${input.ledger.tool_name}://outputs/${input.ledger.ledger_id}/${input.status}`,
+    summary: input.summary,
+    redaction_class: 'metadata_only'
+  });
+  return {
+    ...input.ledger,
+    lifecycle,
+    result: {
+      status: input.status,
+      summary: input.summary,
+      sanitized_output_ref: sanitizedOutputRef,
+      ...(input.error_ref ? { error_ref: input.error_ref } : {}),
+      ...(input.rollback_ref ? { rollback_ref: input.rollback_ref } : {})
+    },
+    trace: createHarnessCoreTraceRef({
+      id: `${input.ledger.ledger_id}:${input.status}:final`,
+      summary: `Final ledger for ${input.ledger.tool_name}.`
+    })
+  };
 }
 
 export function createHarnessCoreReadinessScore(input: {

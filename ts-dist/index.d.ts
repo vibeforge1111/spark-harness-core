@@ -478,6 +478,16 @@ export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     reply_instruction?: string;
     now?: string;
 }): GovernorDecisionV1;
+export declare function finalizeHarnessCoreToolCallLedger(input: {
+    ledger: ToolCallLedgerV1;
+    status: ToolCallLedgerV1['result']['status'];
+    summary: string;
+    output_ref?: HarnessCoreArtifactRef;
+    output_path_or_uri?: string;
+    error_ref?: HarnessCoreArtifactRef;
+    rollback_ref?: HarnessCoreArtifactRef;
+    now?: string;
+}): ToolCallLedgerV1;
 export declare function createHarnessCoreReadinessScore(input: {
     id: string;
     target_kind: ReadinessScoreV1['target']['kind'];

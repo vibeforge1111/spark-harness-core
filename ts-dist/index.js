@@ -10,6 +10,7 @@ exports.riskTierForHarnessMutation = riskTierForHarnessMutation;
 exports.createHarnessCoreActionEnvelopeVNext = createHarnessCoreActionEnvelopeVNext;
 exports.createHarnessCoreGovernorDecision = createHarnessCoreGovernorDecision;
 exports.createHarnessCoreAuthorizedGovernorDecision = createHarnessCoreAuthorizedGovernorDecision;
+exports.finalizeHarnessCoreToolCallLedger = finalizeHarnessCoreToolCallLedger;
 exports.createHarnessCoreReadinessScore = createHarnessCoreReadinessScore;
 exports.createHarnessCoreExperienceIndex = createHarnessCoreExperienceIndex;
 exports.createHarnessCoreResourceRegistry = createHarnessCoreResourceRegistry;
@@ -26,6 +27,12 @@ exports.HARNESS_CORE_RISK_ORDER = Object.freeze({
     high: 4,
     critical: 5
 });
+const HARNESS_CORE_EXECUTED_TOOL_STATUSES = new Set([
+    'success',
+    'failure',
+    'partial',
+    'rolled_back'
+]);
 function safeHarnessCoreId(prefix, raw) {
     const normalized = raw.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
     const suffix = normalized || Math.random().toString(16).slice(2, 14);
@@ -406,6 +413,57 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         reply_style: input.reply_style,
         reply_instruction: input.reply_instruction
     });
+}
+function executeStageVerdictForHarnessStatus(status) {
+    if (status === 'not_started')
+        return 'skipped';
+    if (status === 'success' || status === 'partial')
+        return 'passed';
+    return 'failed';
+}
+function assertHarnessCoreExecutionStatusAuthorized(authorizationVerdict, status) {
+    if (HARNESS_CORE_EXECUTED_TOOL_STATUSES.has(status) && authorizationVerdict !== 'allow') {
+        throw new Error('Tool execution status requires allow authorization; blocked or interrupted actions may only record a not_started ledger.');
+    }
+}
+function finalizeHarnessCoreToolCallLedger(input) {
+    assertHarnessCoreExecutionStatusAuthorized(input.ledger.authorization.verdict, input.status);
+    const now = input.now || new Date().toISOString();
+    const executeStage = {
+        stage: 'execute',
+        at: now,
+        verdict: executeStageVerdictForHarnessStatus(input.status),
+        summary: input.summary
+    };
+    const lifecycle = [...input.ledger.lifecycle];
+    if (lifecycle.length > 0 && lifecycle[lifecycle.length - 1].stage === 'execute') {
+        lifecycle[lifecycle.length - 1] = executeStage;
+    }
+    else {
+        lifecycle.push(executeStage);
+    }
+    const sanitizedOutputRef = input.output_ref || createHarnessCoreArtifactRef({
+        id: `${input.ledger.ledger_id}:${input.status}:output`,
+        kind: 'tool_output',
+        path_or_uri: input.output_path_or_uri || `${input.ledger.tool_name}://outputs/${input.ledger.ledger_id}/${input.status}`,
+        summary: input.summary,
+        redaction_class: 'metadata_only'
+    });
+    return {
+        ...input.ledger,
+        lifecycle,
+        result: {
+            status: input.status,
+            summary: input.summary,
+            sanitized_output_ref: sanitizedOutputRef,
+            ...(input.error_ref ? { error_ref: input.error_ref } : {}),
+            ...(input.rollback_ref ? { rollback_ref: input.rollback_ref } : {})
+        },
+        trace: createHarnessCoreTraceRef({
+            id: `${input.ledger.ledger_id}:${input.status}:final`,
+            summary: `Final ledger for ${input.ledger.tool_name}.`
+        })
+    };
 }
 function createHarnessCoreReadinessScore(input) {
     const values = Object.values(input.categories).map((category) => category.score);
