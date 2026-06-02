@@ -343,6 +343,60 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(ledger["result"]["status"], "success")
 
+    def test_tool_ledger_cannot_record_execution_without_allow_authorization(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:publish",
+            action_type="publish",
+            risk_tier="high",
+            summary="Publish a Spark release.",
+            args_path="experience/private/publish-args.json",
+            requires_confirmation=True,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="confirm_action",
+            intent_summary="User appears to request a publish action.",
+            raw_turn_summary="Publish the Spark release.",
+            proposed_actions=[action],
+            authority_state="confirmation_required",
+            risk_tier="high",
+            confidence=0.91,
+            requires_human_confirmation=True,
+        )
+        decision = kernel.authorize(envelope, action)
+        self.assertEqual(decision["verdict"], "interrupt")
+
+        with self.assertRaises(ValueError):
+            kernel.record_tool_call(
+                envelope=envelope,
+                action=action,
+                authorization=decision,
+                tool_name="spark.publish",
+                status="success",
+                output_path="experience/private/publish-output.json",
+                summary="This must not be representable before approval.",
+            )
+
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=decision,
+            tool_name="spark.publish",
+            status="not_started",
+            output_path="experience/private/publish-not-started.json",
+            summary="Publish was interrupted before execution.",
+        )
+        self.assertEqual(ledger["result"]["status"], "not_started")
+        self.assertEqual(ledger["lifecycle"][-1]["verdict"], "skipped")
+
+        with self.assertRaises(ValueError):
+            kernel.finalize_tool_call_ledger(
+                ledger,
+                status="success",
+                output_path="experience/private/publish-output.json",
+                summary="This must not be representable before approval.",
+            )
+
     def test_legacy_turn_intent_adapter_emits_vnext_authorization(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload())
         result = authorize_legacy_tool_call(

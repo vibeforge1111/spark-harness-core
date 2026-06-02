@@ -114,6 +114,7 @@ WRITE_ACTION_TYPES = frozenset(
 )
 LIVE_QA_RISKS = ("safe", "mission", "writes_files", "external")
 LIVE_QA_VERDICTS = ("pass", "fail", "blocked", "needs-retest", "untested")
+EXECUTED_TOOL_STATUSES = frozenset({"success", "failure", "partial", "rolled_back"})
 
 
 @dataclass(frozen=True)
@@ -325,6 +326,7 @@ class HarnessKernel:
         summary: str,
     ) -> dict[str, Any]:
         authorization_verdict = str(authorization.get("verdict") or "")
+        self._assert_execution_status_authorized(authorization_verdict, status)
         if authorization_verdict == "allow":
             authorize_stage_verdict = "passed"
         elif authorization_verdict == "interrupt":
@@ -373,6 +375,7 @@ class HarnessKernel:
         rollback_path: str | None = None,
     ) -> dict[str, Any]:
         validate_instance("tool-call-ledger-v1", ledger)
+        self._assert_execution_status_authorized(str(ledger["authorization"].get("verdict") or ""), status)
         updated = deepcopy(ledger)
         execute_stage = {"stage": "execute", "at": _now(), "verdict": self._execute_verdict_for_status(status)}
         lifecycle = [dict(item) for item in updated.get("lifecycle", [])]
@@ -1029,6 +1032,14 @@ class HarnessKernel:
         if status in {"success", "partial"}:
             return "passed"
         return "failed"
+
+    @staticmethod
+    def _assert_execution_status_authorized(authorization_verdict: str, status: str) -> None:
+        if status in EXECUTED_TOOL_STATUSES and authorization_verdict != "allow":
+            raise ValueError(
+                "Tool execution status requires allow authorization; blocked or interrupted actions may only "
+                "record a not_started ledger."
+            )
 
     @staticmethod
     def _restrictions_for_action(action: dict[str, Any]) -> dict[str, bool]:

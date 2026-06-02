@@ -48,6 +48,16 @@ propose -> validate -> authorize -> approve/interrupt -> execute -> sanitize -> 
 
 Rollback and failure are first-class outcomes, not side notes.
 
+Execution status is authority-bound:
+
+- `not_started` may be recorded for allowed, interrupted, or denied actions so
+  blocked work remains inspectable.
+- `success`, `failure`, `partial`, and `rolled_back` require an `allow`
+  authorization. A blocked or interrupted action cannot be represented as
+  executed by changing the ledger result later.
+- Tool ledgers are evidence records, not permission grants. The Governor and
+  authorization decision remain the execution boundary.
+
 ## Authorization Verdicts
 
 - `allow`: the action may proceed inside stated restrictions.
@@ -132,4 +142,3 @@ Do not ship or promote a surface when:
 - chat-only moves can carry proposed actions
 - readiness lacks execution, tools, context, lifecycle, observability, verification, or governance evidence
 - self-evolution can alter its verifier, benchmark, model config, or authority policy without approval
-
