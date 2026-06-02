@@ -51,6 +51,7 @@ class TypeScriptContractTests(unittest.TestCase):
               promotion_gates: {
                 telegram_live_proven: true,
                 startup_benchmark_proven: true,
+                performance_budget_proven: true,
                 zero_high_agency_legacy_local_gates: true
               }
             });

@@ -22,6 +22,25 @@ No surface should turn raw language into high-agency action by itself.
 - An action is not executable until it has a valid envelope and an `AuthorizationDecisionV1`.
 - A high-agency action is not complete until it has a `ToolCallLedgerV1` and result verdict.
 
+## Legacy Plane Retirement
+
+Prior intent patches, route-specific detectors, helper vetoes, and adapter-local
+launch logic must be retired, removed, or demoted to evidence adapters. They
+must not remain as fallback authority, shadow routers, hidden launch gates, or
+parallel policy systems.
+
+When Spark keeps a historical detector for migration, tests, or diagnostics, it
+must satisfy all of these conditions:
+
+- it can only emit evidence into the Governor path
+- it cannot execute, save, schedule, publish, mutate memory, start missions, or
+  finalize tool ledgers by itself
+- its output is traceable as evidence, not as an authority verdict
+- it has a named retirement owner or compatibility reason
+
+No surface is release-candidate ready while old patches can still fight the
+Governor or bypass Harness Core.
+
 ## Move Semantics
 
 `chat_explain`, `chat_plan`, `chat_compare`, `chat_score`, and `chat_draft_text` are conversational moves.
@@ -113,6 +132,10 @@ Every meaningful step must be inspectable:
 
 If Spark cannot explain why it acted, the run is not ready for promotion.
 
+Readiness promotion requires performance evidence as a first-class gate. A
+surface can be private-ready with zero high-agency legacy gates, but it cannot
+be release-candidate or public-ready until `performance_budget_proven` is true.
+
 ## Self-Evolution
 
 Self-evolution may improve prompts, tools, middleware, skills, specs, adapters, policies, and tests only through a `ChangeManifestV1`.
@@ -138,7 +161,9 @@ Do not ship or promote a surface when:
 
 - high-agency action can run without envelope, authorization, ledger, and verdict
 - a route-specific regex owns execution authority
+- a legacy patch, fallback router, or adapter-local detector can bypass or fight the Governor
 - memory or pending state overrides fresh user intent
 - chat-only moves can carry proposed actions
 - readiness lacks execution, tools, context, lifecycle, observability, verification, or governance evidence
+- release-candidate readiness lacks a proven performance budget
 - self-evolution can alter its verifier, benchmark, model config, or authority policy without approval

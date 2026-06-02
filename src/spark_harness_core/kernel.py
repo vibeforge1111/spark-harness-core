@@ -607,14 +607,27 @@ class HarnessKernel:
             "network_absorbable": False,
             "telegram_live_proven": False,
             "startup_benchmark_proven": False,
+            "performance_budget_proven": False,
             "zero_high_agency_legacy_local_gates": False,
             **(promotion_gates or {}),
         }
         overall_score = round(sum(item["score"] for item in categories.values()) / len(READINESS_CATEGORIES), 4)
         any_blockers = any(item["blockers"] for item in categories.values())
-        if gates["public_ready"] and gates["network_absorbable"] and overall_score >= 0.95 and not any_blockers:
+        if (
+            gates["public_ready"]
+            and gates["network_absorbable"]
+            and gates["performance_budget_proven"]
+            and overall_score >= 0.95
+            and not any_blockers
+        ):
             status = "public_ready"
-        elif overall_score >= 0.85 and gates["telegram_live_proven"] and gates["startup_benchmark_proven"] and not any_blockers:
+        elif (
+            overall_score >= 0.85
+            and gates["telegram_live_proven"]
+            and gates["startup_benchmark_proven"]
+            and gates["performance_budget_proven"]
+            and not any_blockers
+        ):
             status = "release_candidate"
         elif overall_score >= 0.7 and gates["zero_high_agency_legacy_local_gates"]:
             status = "private_ready"

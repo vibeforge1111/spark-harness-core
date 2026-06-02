@@ -12,6 +12,7 @@ READINESS_GATES = {
     "network_absorbable",
     "telegram_live_proven",
     "startup_benchmark_proven",
+    "performance_budget_proven",
     "zero_high_agency_legacy_local_gates",
 }
 
