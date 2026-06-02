@@ -524,6 +524,7 @@ export declare function createTelegramLiveQaEvidencePacket(input: {
     catalog: string;
     suite?: string | null;
     include_risky?: boolean;
+    required_session_evidence?: Partial<TelegramLiveQaEvidencePacketV1['required_session_evidence']>;
     cases: TelegramLiveQaEvidencePacketV1['cases'];
 }): TelegramLiveQaEvidencePacketV1;
 export declare function createHarnessCoreChangeManifest(input: {

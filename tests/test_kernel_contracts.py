@@ -979,6 +979,20 @@ class KernelContractTests(unittest.TestCase):
             catalog="genesis-live-telegram-100.json",
             title="Spark Genesis Telegram Live QA Evidence Packet",
             include_risky=True,
+            required_session_evidence={
+                "profile": "sparkqa-bot",
+                "tester": "codex",
+                "bot_runtime_commit": "abc1234",
+                "harness_core_commit": "def5678",
+                "spark_os_compile_ref": "/tmp/spark-os-compile.json",
+                "spark_live_status_ref": "/tmp/spark-live-status.json",
+                "spark_verify_provenance_ref": "/tmp/spark-verify.json",
+                "telegram_chat_evidence_ref": "/tmp/telegram.png",
+                "overall_verdict": "untested",
+                "follow_up_commits": ["abc1234"],
+                "pr_links": [],
+                "remaining_risks": ["100 live prompts still incomplete"],
+            },
             generated_at="2026-06-02T00:00:00Z",
         )
 
@@ -986,6 +1000,9 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(packet["selection"]["case_count"], 1)
         self.assertEqual(packet["selection"]["risk_counts"]["safe"], 1)
         self.assertEqual(packet["summary"]["untested"], 1)
+        self.assertEqual(packet["required_session_evidence"]["profile"], "sparkqa-bot")
+        self.assertEqual(packet["required_session_evidence"]["bot_runtime_commit"], "abc1234")
+        self.assertEqual(packet["required_session_evidence"]["remaining_risks"], ["100 live prompts still incomplete"])
         self.assertEqual(packet["cases"][0]["verdict"], "untested")
         self.assertIsNone(packet["cases"][0]["observed_turns"][0]["reply"])
         self.assertIn("does not prove release readiness", packet["authority_claim_boundary"])

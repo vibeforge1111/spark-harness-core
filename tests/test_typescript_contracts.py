@@ -110,6 +110,20 @@ class TypeScriptContractTests(unittest.TestCase):
               catalog: 'genesis-live-telegram-100.json',
               include_risky: true,
               title: 'Spark Genesis Telegram Live QA Evidence Packet',
+              required_session_evidence: {
+                profile: 'sparkqa-bot',
+                tester: 'codex',
+                bot_runtime_commit: 'abc1234',
+                harness_core_commit: 'def5678',
+                spark_os_compile_ref: '/tmp/spark-os-compile.json',
+                spark_live_status_ref: '/tmp/spark-live-status.json',
+                spark_verify_provenance_ref: '/tmp/spark-verify.json',
+                telegram_chat_evidence_ref: '/tmp/telegram.png',
+                overall_verdict: 'untested',
+                follow_up_commits: ['abc1234'],
+                pr_links: [],
+                remaining_risks: ['100 live prompts still incomplete']
+              },
               cases: [{
                 ordinal: 1,
                 id: 'genesis-001',
@@ -303,6 +317,8 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["telegramLiveQaPacket"]["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
         self.assertEqual(payload["telegramLiveQaPacket"]["selection"]["case_count"], 1)
         self.assertEqual(payload["telegramLiveQaPacket"]["summary"]["untested"], 1)
+        self.assertEqual(payload["telegramLiveQaPacket"]["required_session_evidence"]["profile"], "sparkqa-bot")
+        self.assertEqual(payload["telegramLiveQaPacket"]["required_session_evidence"]["remaining_risks"], ["100 live prompts still incomplete"])
         self.assertEqual(payload["manifest"]["schema_version"], "change-manifest-v1")
         self.assertTrue(payload["manifest"]["live_proof_required"])
         self.assertEqual(payload["acceptedManifest"]["verdict"], "accepted")

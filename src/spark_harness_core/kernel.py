@@ -736,6 +736,7 @@ class HarnessKernel:
         title: str = "Spark Telegram Live QA Evidence Packet",
         suite: str | None = None,
         include_risky: bool = False,
+        required_session_evidence: dict[str, Any] | None = None,
         run_id: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
@@ -751,6 +752,25 @@ class HarnessKernel:
                 raise ValueError(f"unsupported Telegram live QA verdict: {verdict}")
             risk_counts[risk] += 1
             summary_counts[verdict.replace("-", "_")] += 1
+        session_evidence = {
+            "profile": None,
+            "tester": None,
+            "bot_runtime_commit": None,
+            "harness_core_commit": None,
+            "spark_os_compile_ref": None,
+            "spark_live_status_ref": None,
+            "spark_verify_provenance_ref": None,
+            "telegram_chat_evidence_ref": None,
+            "overall_verdict": "untested",
+            "follow_up_commits": [],
+            "pr_links": [],
+            "remaining_risks": [],
+        }
+        if required_session_evidence:
+            session_evidence.update(required_session_evidence)
+            session_evidence["follow_up_commits"] = list(required_session_evidence.get("follow_up_commits") or [])
+            session_evidence["pr_links"] = list(required_session_evidence.get("pr_links") or [])
+            session_evidence["remaining_risks"] = list(required_session_evidence.get("remaining_risks") or [])
         packet = {
             "schema_version": "spark.telegram_live_qa_evidence_packet.v1",
             "generated_at": created_at,
@@ -768,20 +788,7 @@ class HarnessKernel:
                 "each case has observed replies, side-effect checks, ledger or trace evidence where required, "
                 "and a human verdict. It must not be treated as authority to execute high-agency actions."
             ),
-            "required_session_evidence": {
-                "profile": None,
-                "tester": None,
-                "bot_runtime_commit": None,
-                "harness_core_commit": None,
-                "spark_os_compile_ref": None,
-                "spark_live_status_ref": None,
-                "spark_verify_provenance_ref": None,
-                "telegram_chat_evidence_ref": None,
-                "overall_verdict": "untested",
-                "follow_up_commits": [],
-                "pr_links": [],
-                "remaining_risks": [],
-            },
+            "required_session_evidence": session_evidence,
             "verdict_values": list(LIVE_QA_VERDICTS),
             "cases": cases,
             "summary": summary_counts,

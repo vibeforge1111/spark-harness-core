@@ -512,6 +512,27 @@ export function createTelegramLiveQaEvidencePacket(input) {
             summary[entry.verdict] += 1;
         }
     }
+    const defaultSessionEvidence = {
+        profile: null,
+        tester: null,
+        bot_runtime_commit: null,
+        harness_core_commit: null,
+        spark_os_compile_ref: null,
+        spark_live_status_ref: null,
+        spark_verify_provenance_ref: null,
+        telegram_chat_evidence_ref: null,
+        overall_verdict: 'untested',
+        follow_up_commits: [],
+        pr_links: [],
+        remaining_risks: []
+    };
+    const sessionEvidence = {
+        ...defaultSessionEvidence,
+        ...(input.required_session_evidence || {}),
+        follow_up_commits: input.required_session_evidence?.follow_up_commits || defaultSessionEvidence.follow_up_commits,
+        pr_links: input.required_session_evidence?.pr_links || defaultSessionEvidence.pr_links,
+        remaining_risks: input.required_session_evidence?.remaining_risks || defaultSessionEvidence.remaining_risks
+    };
     return {
         schema_version: 'spark.telegram_live_qa_evidence_packet.v1',
         generated_at: generatedAt,
@@ -529,20 +550,7 @@ export function createTelegramLiveQaEvidencePacket(input) {
             'It does not prove release readiness until each case has observed replies, side-effect checks, ledger or trace evidence where required, and a human verdict.',
             'It must not be treated as authority to execute high-agency actions.'
         ].join(' '),
-        required_session_evidence: {
-            profile: null,
-            tester: null,
-            bot_runtime_commit: null,
-            harness_core_commit: null,
-            spark_os_compile_ref: null,
-            spark_live_status_ref: null,
-            spark_verify_provenance_ref: null,
-            telegram_chat_evidence_ref: null,
-            overall_verdict: 'untested',
-            follow_up_commits: [],
-            pr_links: [],
-            remaining_risks: []
-        },
+        required_session_evidence: sessionEvidence,
         verdict_values: ['pass', 'fail', 'blocked', 'needs-retest', 'untested'],
         cases: input.cases,
         summary
