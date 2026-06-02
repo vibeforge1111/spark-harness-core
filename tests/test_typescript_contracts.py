@@ -56,6 +56,28 @@ class TypeScriptContractTests(unittest.TestCase):
                 zero_high_agency_legacy_local_gates: true
               }
             });
+            const readinessWithLegacyBlocker = core.createHarnessCoreReadinessScore({
+              id: 'telegram-authority-legacy-blocked',
+              target_kind: 'surface',
+              target_id: 'surface:telegram',
+              owner_repo: 'spark-telegram-bot',
+              categories: {
+                execution: category,
+                tools: category,
+                context: category,
+                lifecycle: category,
+                observability: category,
+                verification: category,
+                governance: category
+              },
+              promotion_gates: {
+                telegram_live_proven: true,
+                startup_benchmark_proven: true,
+                performance_budget_proven: true,
+                governance_rulesets_proven: true,
+                zero_high_agency_legacy_local_gates: false
+              }
+            });
             const experience = core.createHarnessCoreExperienceIndex({
               id: 'telegram-proof',
               entries: [{
@@ -317,6 +339,7 @@ class TypeScriptContractTests(unittest.TestCase):
               artifact,
               evidence,
               readiness,
+              readinessWithLegacyBlocker,
               experience,
               registry,
               evaluation,
@@ -350,6 +373,7 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["evidence"]["kind"], "fresh_user_intent")
         self.assertEqual(payload["readiness"]["schema_version"], "readiness-score-v1")
         self.assertEqual(payload["readiness"]["overall"]["status"], "release_candidate")
+        self.assertEqual(payload["readinessWithLegacyBlocker"]["overall"]["status"], "blocked")
         self.assertEqual(payload["experience"]["entries"][0]["entry_type"], "test_result")
         self.assertEqual(payload["registry"]["resources"][0]["resource_type"], "harness_spec")
         self.assertEqual(payload["evaluation"]["schema_version"], "evaluation-pack-v1")

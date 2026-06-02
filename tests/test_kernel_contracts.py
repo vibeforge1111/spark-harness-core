@@ -800,6 +800,31 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(readiness["promotion_gates"]["governance_rulesets_proven"], False)
         self.assertEqual(readiness["overall"]["status"], "private_ready")
 
+    def test_readiness_release_candidate_requires_legacy_cleanup_proof(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 1.0
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+
+        readiness = kernel.readiness_score(
+            target_kind="release",
+            target_id="release:genesis-harness",
+            owner_repo="spark-harness-core",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": False,
+            },
+        )
+
+        self.assertEqual(readiness["overall"]["status"], "blocked")
+
     def test_surface_spec_keeps_runtime_logic_inspectable(self) -> None:
         spec = {
             "schema_version": "surface-spec-v1",

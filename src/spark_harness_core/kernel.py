@@ -619,6 +619,7 @@ class HarnessKernel:
             and gates["network_absorbable"]
             and gates["performance_budget_proven"]
             and gates["governance_rulesets_proven"]
+            and gates["zero_high_agency_legacy_local_gates"]
             and overall_score >= 0.95
             and not any_blockers
         ):
@@ -629,6 +630,7 @@ class HarnessKernel:
             and gates["startup_benchmark_proven"]
             and gates["performance_budget_proven"]
             and gates["governance_rulesets_proven"]
+            and gates["zero_high_agency_legacy_local_gates"]
             and not any_blockers
         ):
             status = "release_candidate"
