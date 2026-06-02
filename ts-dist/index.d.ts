@@ -191,6 +191,7 @@ export interface ReadinessScoreV1 {
         telegram_live_proven: boolean;
         startup_benchmark_proven: boolean;
         performance_budget_proven: boolean;
+        governance_rulesets_proven: boolean;
         zero_high_agency_legacy_local_gates: boolean;
     };
     overall: {

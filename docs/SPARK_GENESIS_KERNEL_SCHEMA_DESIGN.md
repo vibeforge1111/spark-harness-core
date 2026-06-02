@@ -32,7 +32,7 @@ The pasted notes reinforce the same architecture from three directions:
 - `ResourceRegistryV1`: versions prompts, agents, tools, environments, memory stores, adapters, specs, eval packs, startup policies, and surface rules.
 - `ExperienceIndexV1`: keeps raw traces, cleaned traces, screenshots, route decisions, tool ledgers, scores, diffs, and live evidence searchable without flooding context.
 - `SurfaceSpecV1`: makes each surface executable as a natural-language harness spec under the shared runtime charter.
-- `ReadinessScoreV1`: scores execution, tools, context, lifecycle, observability, verification, and governance before promotion, with explicit gates for live Telegram proof, startup benchmark proof, performance budget proof, and legacy-plane retirement.
+- `ReadinessScoreV1`: scores execution, tools, context, lifecycle, observability, verification, and governance before promotion, with explicit gates for live Telegram proof, startup benchmark proof, performance budget proof, governance ruleset proof, and legacy-plane retirement.
 - `AutonomyPolicyV1`: defines risk tiers, autonomy levels, allow/deny rules, approvals, hooks, and headless constraints.
 - `EvaluationPackV1`: packages route, tool, startup, live Telegram, regression, latency, cost, and blind-jury cases.
 - `SelfEvolutionRunV1`: records the observe, distill, diagnose, manifest, patch, test, compare, promote/rollback loop.

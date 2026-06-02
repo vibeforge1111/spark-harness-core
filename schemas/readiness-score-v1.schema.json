@@ -58,6 +58,7 @@
         "telegram_live_proven",
         "startup_benchmark_proven",
         "performance_budget_proven",
+        "governance_rulesets_proven",
         "zero_high_agency_legacy_local_gates"
       ],
       "properties": {
@@ -66,6 +67,7 @@
         "telegram_live_proven": { "type": "boolean" },
         "startup_benchmark_proven": { "type": "boolean" },
         "performance_budget_proven": { "type": "boolean" },
+        "governance_rulesets_proven": { "type": "boolean" },
         "zero_high_agency_legacy_local_gates": { "type": "boolean" }
       }
     },

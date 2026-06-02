@@ -13,6 +13,7 @@ READINESS_GATES = {
     "telegram_live_proven",
     "startup_benchmark_proven",
     "performance_budget_proven",
+    "governance_rulesets_proven",
     "zero_high_agency_legacy_local_gates",
 }
 

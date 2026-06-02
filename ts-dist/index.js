@@ -475,12 +475,13 @@ function createHarnessCoreReadinessScore(input) {
         telegram_live_proven: false,
         startup_benchmark_proven: false,
         performance_budget_proven: false,
+        governance_rulesets_proven: false,
         zero_high_agency_legacy_local_gates: false,
         ...(input.promotion_gates || {})
     };
-    const status = gates.public_ready && gates.network_absorbable && gates.performance_budget_proven && score >= 0.95 && !blockers
+    const status = gates.public_ready && gates.network_absorbable && gates.performance_budget_proven && gates.governance_rulesets_proven && score >= 0.95 && !blockers
         ? 'public_ready'
-        : score >= 0.85 && gates.telegram_live_proven && gates.startup_benchmark_proven && gates.performance_budget_proven && !blockers
+        : score >= 0.85 && gates.telegram_live_proven && gates.startup_benchmark_proven && gates.performance_budget_proven && gates.governance_rulesets_proven && !blockers
             ? 'release_candidate'
             : score >= 0.7 && gates.zero_high_agency_legacy_local_gates
                 ? 'private_ready'

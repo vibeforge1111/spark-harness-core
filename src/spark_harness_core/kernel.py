@@ -608,6 +608,7 @@ class HarnessKernel:
             "telegram_live_proven": False,
             "startup_benchmark_proven": False,
             "performance_budget_proven": False,
+            "governance_rulesets_proven": False,
             "zero_high_agency_legacy_local_gates": False,
             **(promotion_gates or {}),
         }
@@ -617,6 +618,7 @@ class HarnessKernel:
             gates["public_ready"]
             and gates["network_absorbable"]
             and gates["performance_budget_proven"]
+            and gates["governance_rulesets_proven"]
             and overall_score >= 0.95
             and not any_blockers
         ):
@@ -626,6 +628,7 @@ class HarnessKernel:
             and gates["telegram_live_proven"]
             and gates["startup_benchmark_proven"]
             and gates["performance_budget_proven"]
+            and gates["governance_rulesets_proven"]
             and not any_blockers
         ):
             status = "release_candidate"

@@ -52,6 +52,7 @@ class TypeScriptContractTests(unittest.TestCase):
                 telegram_live_proven: true,
                 startup_benchmark_proven: true,
                 performance_budget_proven: true,
+                governance_rulesets_proven: true,
                 zero_high_agency_legacy_local_gates: true
               }
             });

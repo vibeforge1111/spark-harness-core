@@ -735,6 +735,7 @@ class KernelContractTests(unittest.TestCase):
                 "telegram_live_proven": False,
                 "startup_benchmark_proven": False,
                 "performance_budget_proven": False,
+                "governance_rulesets_proven": False,
                 "zero_high_agency_legacy_local_gates": True,
             },
             "overall": {
@@ -772,6 +773,31 @@ class KernelContractTests(unittest.TestCase):
         )
 
         self.assertEqual(readiness["promotion_gates"]["performance_budget_proven"], False)
+        self.assertEqual(readiness["overall"]["status"], "private_ready")
+
+    def test_readiness_release_candidate_requires_governance_rulesets(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 1.0
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+
+        readiness = kernel.readiness_score(
+            target_kind="release",
+            target_id="release:genesis-harness",
+            owner_repo="spark-cli",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+
+        self.assertEqual(readiness["promotion_gates"]["governance_rulesets_proven"], False)
         self.assertEqual(readiness["overall"]["status"], "private_ready")
 
     def test_surface_spec_keeps_runtime_logic_inspectable(self) -> None:
@@ -850,6 +876,7 @@ class KernelContractTests(unittest.TestCase):
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
                 "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -881,6 +908,7 @@ class KernelContractTests(unittest.TestCase):
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
                 "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -975,6 +1003,7 @@ class KernelContractTests(unittest.TestCase):
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
                 "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -1143,6 +1172,7 @@ class KernelContractTests(unittest.TestCase):
                 "readiness-score --category execution=1 --category tools=1 --category context=1 "
                 "--category lifecycle=1 --category observability=1 --category verification=1 "
                 "--category governance=1 --gate performance_budget_proven=true "
+                "--gate governance_rulesets_proven=true "
                 "--gate zero_high_agency_legacy_local_gates=true",
                 "readiness-score-v1",
             ),

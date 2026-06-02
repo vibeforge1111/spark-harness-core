@@ -132,9 +132,10 @@ Every meaningful step must be inspectable:
 
 If Spark cannot explain why it acted, the run is not ready for promotion.
 
-Readiness promotion requires performance evidence as a first-class gate. A
-surface can be private-ready with zero high-agency legacy gates, but it cannot
-be release-candidate or public-ready until `performance_budget_proven` is true.
+Readiness promotion requires performance and governance evidence as first-class
+gates. A surface can be private-ready with zero high-agency legacy gates, but it
+cannot be release-candidate or public-ready until `performance_budget_proven`
+and `governance_rulesets_proven` are true.
 
 ## Self-Evolution
 
@@ -166,4 +167,5 @@ Do not ship or promote a surface when:
 - chat-only moves can carry proposed actions
 - readiness lacks execution, tools, context, lifecycle, observability, verification, or governance evidence
 - release-candidate readiness lacks a proven performance budget
+- release-candidate readiness lacks proven repo-local governance rulesets
 - self-evolution can alter its verifier, benchmark, model config, or authority policy without approval
