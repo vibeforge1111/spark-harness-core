@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/legacy-authority-plane-v1.schema.json",
+  "title": "Spark Legacy Authority Plane V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plane_id",
+    "created_at",
+    "owner_repo",
+    "surface",
+    "plane_type",
+    "source_ref",
+    "authority_risk",
+    "disposition",
+    "harness_binding",
+    "evidence",
+    "blockers",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": { "const": "legacy-authority-plane-v1" },
+    "plane_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+    "plane_type": {
+      "type": "string",
+      "enum": [
+        "keyword_detector",
+        "regex_router",
+        "pending_state_helper",
+        "memory_override",
+        "mission_helper",
+        "machine_origin_policy",
+        "local_dispatcher",
+        "template_reply",
+        "schedule_trigger",
+        "publish_hook",
+        "tool_launcher",
+        "unknown"
+      ]
+    },
+    "source_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" },
+    "authority_risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "can_execute",
+        "can_mutate_state",
+        "can_route_turns",
+        "can_write_memory",
+        "can_launch_mission",
+        "can_call_network",
+        "can_publish",
+        "can_schedule"
+      ],
+      "properties": {
+        "can_execute": { "type": "boolean" },
+        "can_mutate_state": { "type": "boolean" },
+        "can_route_turns": { "type": "boolean" },
+        "can_write_memory": { "type": "boolean" },
+        "can_launch_mission": { "type": "boolean" },
+        "can_call_network": { "type": "boolean" },
+        "can_publish": { "type": "boolean" },
+        "can_schedule": { "type": "boolean" }
+      }
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "removed",
+        "disabled",
+        "compat_no_authority",
+        "rebound_to_harness_evidence",
+        "converted_to_harness_consumer",
+        "release_blocker"
+      ]
+    },
+    "harness_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "governor_required",
+        "evidence_only",
+        "consumer_of_governor",
+        "ledger_required"
+      ],
+      "properties": {
+        "governor_required": { "type": "boolean" },
+        "evidence_only": { "type": "boolean" },
+        "consumer_of_governor": { "type": "boolean" },
+        "ledger_required": { "type": "boolean" },
+        "notes": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+      "minItems": 1
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+      "default": []
+    },
+    "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "disposition": { "const": "release_blocker" } },
+        "required": ["disposition"]
+      },
+      "then": {
+        "properties": {
+          "blockers": { "minItems": 1 }
+        }
+      }
+    }
+  ]
+}

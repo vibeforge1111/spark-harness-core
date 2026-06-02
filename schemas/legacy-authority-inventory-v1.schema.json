@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/legacy-authority-inventory-v1.schema.json",
+  "title": "Spark Legacy Authority Inventory V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "inventory_id",
+    "created_at",
+    "scope",
+    "planes",
+    "summary",
+    "release_gate"
+  ],
+  "properties": {
+    "schema_version": { "const": "legacy-authority-inventory-v1" },
+    "inventory_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+    "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repo", "surfaces"],
+      "properties": {
+        "owner_repo": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "surfaces": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
+          "minItems": 1
+        }
+      }
+    },
+    "planes": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/legacy-authority-plane-v1.schema.json" },
+      "default": []
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plane_count",
+        "removed_count",
+        "disabled_count",
+        "compat_no_authority_count",
+        "rebound_to_harness_evidence_count",
+        "converted_to_harness_consumer_count",
+        "release_blocker_count",
+        "high_agency_risk_count"
+      ],
+      "properties": {
+        "plane_count": { "type": "integer", "minimum": 0 },
+        "removed_count": { "type": "integer", "minimum": 0 },
+        "disabled_count": { "type": "integer", "minimum": 0 },
+        "compat_no_authority_count": { "type": "integer", "minimum": 0 },
+        "rebound_to_harness_evidence_count": { "type": "integer", "minimum": 0 },
+        "converted_to_harness_consumer_count": { "type": "integer", "minimum": 0 },
+        "release_blocker_count": { "type": "integer", "minimum": 0 },
+        "high_agency_risk_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "release_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["zero_high_agency_legacy_local_gates", "ready_for_readiness_promotion", "blockers"],
+      "properties": {
+        "zero_high_agency_legacy_local_gates": { "type": "boolean" },
+        "ready_for_readiness_promotion": { "type": "boolean" },
+        "blockers": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+          "default": []
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "release_gate": {
+            "properties": {
+              "ready_for_readiness_promotion": { "const": true }
+            },
+            "required": ["ready_for_readiness_promotion"]
+          }
+        },
+        "required": ["release_gate"]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "release_blocker_count": { "const": 0 }
+            }
+          },
+          "release_gate": {
+            "properties": {
+              "zero_high_agency_legacy_local_gates": { "const": true },
+              "blockers": { "maxItems": 0 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

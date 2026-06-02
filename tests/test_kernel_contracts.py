@@ -1149,6 +1149,117 @@ class KernelContractTests(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             validate_instance("telegram-live-qa-evidence-packet-v1", invalid)
 
+    def test_kernel_builds_legacy_authority_inventory(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence("policy")]
+        converted = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:telegram-route-arbiter",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="regex_router",
+            source_path="src/route-arbiter.ts",
+            summary="Legacy route arbiter now consumes Governor authority and records ledgers.",
+            authority_risk={
+                "can_execute": True,
+                "can_mutate_state": True,
+                "can_route_turns": True,
+                "can_write_memory": False,
+                "can_launch_mission": True,
+                "can_call_network": False,
+                "can_publish": False,
+                "can_schedule": False,
+            },
+            disposition="converted_to_harness_consumer",
+            evidence=evidence,
+            governor_required=True,
+            consumer_of_governor=True,
+            ledger_required=True,
+        )
+        evidence_only = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:telegram-keyword-detector",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="keyword_detector",
+            source_path="src/intent-keywords.ts",
+            summary="Keyword detector is retained only as Governor evidence.",
+            authority_risk={
+                "can_execute": False,
+                "can_mutate_state": False,
+                "can_route_turns": False,
+                "can_write_memory": False,
+                "can_launch_mission": False,
+                "can_call_network": False,
+                "can_publish": False,
+                "can_schedule": False,
+            },
+            disposition="rebound_to_harness_evidence",
+            evidence=evidence,
+            evidence_only=True,
+        )
+        inventory = kernel.legacy_authority_inventory(
+            inventory_id="legacy-authority-inventory:telegram",
+            owner_repo="spark-telegram-bot",
+            surfaces=["telegram"],
+            planes=[converted, evidence_only],
+        )
+
+        self.assertEqual(inventory["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(inventory["summary"]["plane_count"], 2)
+        self.assertEqual(inventory["summary"]["converted_to_harness_consumer_count"], 1)
+        self.assertEqual(inventory["summary"]["rebound_to_harness_evidence_count"], 1)
+        self.assertEqual(inventory["summary"]["release_blocker_count"], 0)
+        self.assertTrue(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        validate_instance("legacy-authority-inventory-v1", inventory)
+
+    def test_legacy_authority_inventory_blocks_unconverted_high_agency_planes(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        high_agency_risk = {
+            "can_execute": True,
+            "can_mutate_state": True,
+            "can_route_turns": True,
+            "can_write_memory": False,
+            "can_launch_mission": True,
+            "can_call_network": False,
+            "can_publish": False,
+            "can_schedule": False,
+        }
+
+        with self.assertRaises(ValueError):
+            kernel.legacy_authority_plane(
+                plane_id="legacy-plane:bad-compat-route",
+                owner_repo="spark-telegram-bot",
+                surface="telegram",
+                plane_type="local_dispatcher",
+                source_path="src/bad-dispatcher.ts",
+                summary="This still looks like a local executor.",
+                authority_risk=high_agency_risk,
+                disposition="compat_no_authority",
+                evidence=[sample_evidence("policy")],
+            )
+
+        blocker = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:unconverted-launcher",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="tool_launcher",
+            source_path="src/unconverted-launcher.ts",
+            summary="Unconverted launcher still has local high-agency authority.",
+            authority_risk=high_agency_risk,
+            disposition="release_blocker",
+            evidence=[sample_evidence("policy")],
+            blockers=["unconverted launcher can still start missions"],
+        )
+        inventory = kernel.legacy_authority_inventory(
+            inventory_id="legacy-authority-inventory:blocked",
+            owner_repo="spark-telegram-bot",
+            surfaces=["telegram"],
+            planes=[blocker],
+        )
+
+        self.assertFalse(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertEqual(inventory["summary"]["release_blocker_count"], 1)
+        self.assertIn("unconverted launcher", " ".join(inventory["release_gate"]["blockers"]))
+
     def test_kernel_change_manifest_enforces_protected_component_approval(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
         protected_component = kernel.component(
@@ -1190,6 +1301,7 @@ class KernelContractTests(unittest.TestCase):
             ("experience-index", "experience-index-v1"),
             ("evaluation-pack", "evaluation-pack-v1"),
             ("harness-run --status passed --summary harness-run-proof", "harness-run-v1"),
+            ("legacy-authority-inventory", "legacy-authority-inventory-v1"),
             ("governor-decision", "governor-decision-v1"),
             ("telegram-live-qa-packet --include-risky", "telegram-live-qa-evidence-packet-v1"),
             ("change-manifest", "change-manifest-v1"),

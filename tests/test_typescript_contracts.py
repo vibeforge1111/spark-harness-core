@@ -129,6 +129,64 @@ class TypeScriptContractTests(unittest.TestCase):
               status: 'passed',
               summary: 'Route matrix passed.'
             });
+            const legacyConvertedPlane = core.createHarnessCoreLegacyAuthorityPlane({
+              id: 'telegram-route-arbiter',
+              owner_repo: 'spark-telegram-bot',
+              surface: 'telegram',
+              plane_type: 'regex_router',
+              source_path: 'src/route-arbiter.ts',
+              summary: 'Legacy route arbiter now consumes Governor authority and records ledgers.',
+              authority_risk: {
+                can_execute: true,
+                can_mutate_state: true,
+                can_route_turns: true,
+                can_launch_mission: true
+              },
+              disposition: 'converted_to_harness_consumer',
+              evidence: [evidence],
+              governor_required: true,
+              consumer_of_governor: true,
+              ledger_required: true
+            });
+            const legacyEvidencePlane = core.createHarnessCoreLegacyAuthorityPlane({
+              id: 'telegram-keyword-detector',
+              owner_repo: 'spark-telegram-bot',
+              surface: 'telegram',
+              plane_type: 'keyword_detector',
+              source_path: 'src/intent-keywords.ts',
+              summary: 'Keyword detector now submits evidence only.',
+              authority_risk: {},
+              disposition: 'rebound_to_harness_evidence',
+              evidence: [evidence],
+              evidence_only: true
+            });
+            const legacyInventory = core.createHarnessCoreLegacyAuthorityInventory({
+              id: 'telegram-legacy-inventory',
+              owner_repo: 'spark-telegram-bot',
+              surfaces: ['telegram'],
+              planes: [legacyConvertedPlane, legacyEvidencePlane]
+            });
+            let blockedLegacyPlaneError = '';
+            try {
+              core.createHarnessCoreLegacyAuthorityPlane({
+                id: 'bad-local-dispatcher',
+                owner_repo: 'spark-telegram-bot',
+                surface: 'telegram',
+                plane_type: 'local_dispatcher',
+                source_path: 'src/bad-local-dispatcher.ts',
+                summary: 'This local dispatcher still has high-agency authority.',
+                authority_risk: {
+                  can_execute: true,
+                  can_mutate_state: true,
+                  can_route_turns: true,
+                  can_launch_mission: true
+                },
+                disposition: 'compat_no_authority',
+                evidence: [evidence]
+              });
+            } catch (error) {
+              blockedLegacyPlaneError = error instanceof Error ? error.message : String(error);
+            }
             const telegramLiveQaPacket = core.createTelegramLiveQaEvidencePacket({
               generated_at: '2026-06-02T00:00:00.000Z',
               catalog: 'genesis-live-telegram-100.json',
@@ -344,6 +402,8 @@ class TypeScriptContractTests(unittest.TestCase):
               registry,
               evaluation,
               run,
+              legacyInventory,
+              blockedLegacyPlaneError,
               telegramLiveQaPacket,
               manifest,
               acceptedManifest,
@@ -380,6 +440,11 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["evaluation"]["cases"][0]["expected_authority_state"], "chat_only")
         self.assertEqual(payload["run"]["schema_version"], "harness-run-v1")
         self.assertEqual(payload["run"]["verdict"]["status"], "passed")
+        self.assertEqual(payload["legacyInventory"]["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(payload["legacyInventory"]["summary"]["converted_to_harness_consumer_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["rebound_to_harness_evidence_count"], 1)
+        self.assertTrue(payload["legacyInventory"]["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertIn("compat_no_authority", payload["blockedLegacyPlaneError"])
         self.assertEqual(payload["telegramLiveQaPacket"]["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
         self.assertEqual(payload["telegramLiveQaPacket"]["selection"]["case_count"], 1)
         self.assertEqual(payload["telegramLiveQaPacket"]["summary"]["untested"], 1)

@@ -16,6 +16,8 @@ exports.createHarnessCoreExperienceIndex = createHarnessCoreExperienceIndex;
 exports.createHarnessCoreResourceRegistry = createHarnessCoreResourceRegistry;
 exports.createHarnessCoreEvaluationPack = createHarnessCoreEvaluationPack;
 exports.createHarnessCoreHarnessRun = createHarnessCoreHarnessRun;
+exports.createHarnessCoreLegacyAuthorityPlane = createHarnessCoreLegacyAuthorityPlane;
+exports.createHarnessCoreLegacyAuthorityInventory = createHarnessCoreLegacyAuthorityInventory;
 exports.createTelegramLiveQaEvidencePacket = createTelegramLiveQaEvidencePacket;
 exports.createHarnessCoreChangeManifest = createHarnessCoreChangeManifest;
 exports.createHarnessCoreSelfEvolutionRun = createHarnessCoreSelfEvolutionRun;
@@ -565,6 +567,151 @@ function createHarnessCoreHarnessRun(input) {
             status: input.status,
             summary: input.summary,
             ...(input.remaining_risks ? { remaining_risks: input.remaining_risks } : {})
+        }
+    };
+}
+const LEGACY_AUTHORITY_RISK_KEYS = [
+    'can_execute',
+    'can_mutate_state',
+    'can_route_turns',
+    'can_write_memory',
+    'can_launch_mission',
+    'can_call_network',
+    'can_publish',
+    'can_schedule'
+];
+function legacyAuthorityHasHighAgencyRisk(authorityRisk) {
+    return LEGACY_AUTHORITY_RISK_KEYS.some((key) => Boolean(authorityRisk[key]));
+}
+function assertLegacyAuthorityPlaneDisposition(input) {
+    const highAgencyRisk = legacyAuthorityHasHighAgencyRisk(input.authority_risk);
+    if (input.disposition === 'release_blocker') {
+        if (input.blockers.length === 0) {
+            throw new Error('release-blocker legacy authority planes require at least one blocker');
+        }
+        return;
+    }
+    if (input.blockers.length > 0) {
+        throw new Error('non-blocking legacy authority planes cannot carry release blockers');
+    }
+    if (input.disposition === 'removed' || input.disposition === 'disabled')
+        return;
+    if (input.disposition === 'compat_no_authority' && highAgencyRisk) {
+        throw new Error('compat_no_authority planes cannot retain high-agency execution risk');
+    }
+    if (input.disposition === 'rebound_to_harness_evidence') {
+        if (highAgencyRisk) {
+            throw new Error('evidence-only legacy planes cannot retain high-agency execution risk');
+        }
+        if (!input.evidence_only || input.consumer_of_governor) {
+            throw new Error('rebound_to_harness_evidence requires evidence_only and no consumer authority');
+        }
+    }
+    if (input.disposition === 'converted_to_harness_consumer') {
+        if (!(input.governor_required && input.consumer_of_governor && input.ledger_required)) {
+            throw new Error('converted legacy consumers require Governor authority and tool ledgers');
+        }
+    }
+}
+function createHarnessCoreLegacyAuthorityPlane(input) {
+    const authorityRisk = {
+        can_execute: Boolean(input.authority_risk.can_execute),
+        can_mutate_state: Boolean(input.authority_risk.can_mutate_state),
+        can_route_turns: Boolean(input.authority_risk.can_route_turns),
+        can_write_memory: Boolean(input.authority_risk.can_write_memory),
+        can_launch_mission: Boolean(input.authority_risk.can_launch_mission),
+        can_call_network: Boolean(input.authority_risk.can_call_network),
+        can_publish: Boolean(input.authority_risk.can_publish),
+        can_schedule: Boolean(input.authority_risk.can_schedule)
+    };
+    const governorRequired = Boolean(input.governor_required);
+    const evidenceOnly = Boolean(input.evidence_only);
+    const consumerOfGovernor = Boolean(input.consumer_of_governor);
+    const ledgerRequired = Boolean(input.ledger_required);
+    const blockers = input.blockers || [];
+    assertLegacyAuthorityPlaneDisposition({
+        authority_risk: authorityRisk,
+        disposition: input.disposition,
+        governor_required: governorRequired,
+        evidence_only: evidenceOnly,
+        consumer_of_governor: consumerOfGovernor,
+        ledger_required: ledgerRequired,
+        blockers
+    });
+    return {
+        schema_version: 'legacy-authority-plane-v1',
+        plane_id: safeHarnessCoreId('legacy-plane', input.id),
+        created_at: new Date().toISOString(),
+        owner_repo: input.owner_repo,
+        surface: input.surface,
+        plane_type: input.plane_type,
+        source_ref: createHarnessCoreArtifactRef({
+            id: `${input.id}:source`,
+            kind: 'legacy_authority_source',
+            path_or_uri: input.source_path,
+            summary: input.summary,
+            redaction_class: 'metadata_only'
+        }),
+        authority_risk: authorityRisk,
+        disposition: input.disposition,
+        harness_binding: {
+            governor_required: governorRequired,
+            evidence_only: evidenceOnly,
+            consumer_of_governor: consumerOfGovernor,
+            ledger_required: ledgerRequired,
+            notes: input.summary
+        },
+        evidence: input.evidence,
+        blockers,
+        trace: createHarnessCoreTraceRef({
+            id: `${input.id}:legacy-authority-plane`,
+            summary: input.summary
+        })
+    };
+}
+function createHarnessCoreLegacyAuthorityInventory(input) {
+    const counts = {
+        removed: 0,
+        disabled: 0,
+        compat_no_authority: 0,
+        rebound_to_harness_evidence: 0,
+        converted_to_harness_consumer: 0,
+        release_blocker: 0
+    };
+    const blockers = [];
+    let highAgencyRiskCount = 0;
+    for (const plane of input.planes) {
+        counts[plane.disposition] += 1;
+        if (legacyAuthorityHasHighAgencyRisk(plane.authority_risk))
+            highAgencyRiskCount += 1;
+        blockers.push(...plane.blockers);
+        if (plane.disposition === 'release_blocker')
+            blockers.push(`${plane.plane_id} is a release blocker`);
+    }
+    const ready = counts.release_blocker === 0 && blockers.length === 0;
+    return {
+        schema_version: 'legacy-authority-inventory-v1',
+        inventory_id: safeHarnessCoreId('legacy-authority-inventory', input.id),
+        created_at: new Date().toISOString(),
+        scope: {
+            owner_repo: input.owner_repo,
+            surfaces: input.surfaces
+        },
+        planes: input.planes,
+        summary: {
+            plane_count: input.planes.length,
+            removed_count: counts.removed,
+            disabled_count: counts.disabled,
+            compat_no_authority_count: counts.compat_no_authority,
+            rebound_to_harness_evidence_count: counts.rebound_to_harness_evidence,
+            converted_to_harness_consumer_count: counts.converted_to_harness_consumer,
+            release_blocker_count: counts.release_blocker,
+            high_agency_risk_count: highAgencyRiskCount
+        },
+        release_gate: {
+            zero_high_agency_legacy_local_gates: ready,
+            ready_for_readiness_promotion: ready,
+            blockers
         }
     };
 }

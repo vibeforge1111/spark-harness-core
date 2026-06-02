@@ -115,6 +115,24 @@ WRITE_ACTION_TYPES = frozenset(
 LIVE_QA_RISKS = ("safe", "mission", "writes_files", "external")
 LIVE_QA_VERDICTS = ("pass", "fail", "blocked", "needs-retest", "untested")
 EXECUTED_TOOL_STATUSES = frozenset({"success", "failure", "partial", "rolled_back"})
+LEGACY_PLANE_DISPOSITIONS = (
+    "removed",
+    "disabled",
+    "compat_no_authority",
+    "rebound_to_harness_evidence",
+    "converted_to_harness_consumer",
+    "release_blocker",
+)
+LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS = (
+    "can_execute",
+    "can_mutate_state",
+    "can_route_turns",
+    "can_write_memory",
+    "can_launch_mission",
+    "can_call_network",
+    "can_publish",
+    "can_schedule",
+)
 
 
 @dataclass(frozen=True)
@@ -690,6 +708,112 @@ class HarnessKernel:
         }
         return validate_instance("harness-run-v1", run)
 
+    def legacy_authority_plane(
+        self,
+        *,
+        plane_id: str,
+        owner_repo: str,
+        surface: str,
+        plane_type: str,
+        source_path: str,
+        summary: str,
+        authority_risk: dict[str, bool],
+        disposition: str,
+        evidence: list[dict[str, Any]],
+        governor_required: bool = False,
+        evidence_only: bool = False,
+        consumer_of_governor: bool = False,
+        ledger_required: bool = False,
+        blockers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if disposition not in LEGACY_PLANE_DISPOSITIONS:
+            raise ValueError(f"unsupported legacy authority plane disposition: {disposition}")
+        normalized_risk = {key: bool(authority_risk.get(key)) for key in LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS}
+        blocker_items = list(blockers or [])
+        self._validate_legacy_plane_disposition(
+            authority_risk=normalized_risk,
+            disposition=disposition,
+            governor_required=governor_required,
+            evidence_only=evidence_only,
+            consumer_of_governor=consumer_of_governor,
+            ledger_required=ledger_required,
+            blockers=blocker_items,
+        )
+        plane = {
+            "schema_version": "legacy-authority-plane-v1",
+            "plane_id": plane_id,
+            "created_at": _now(),
+            "owner_repo": owner_repo,
+            "surface": surface,
+            "plane_type": plane_type,
+            "source_ref": artifact_ref("legacy_authority_source", source_path, summary, redaction_class="metadata_only"),
+            "authority_risk": normalized_risk,
+            "disposition": disposition,
+            "harness_binding": {
+                "governor_required": governor_required,
+                "evidence_only": evidence_only,
+                "consumer_of_governor": consumer_of_governor,
+                "ledger_required": ledger_required,
+                "notes": summary,
+            },
+            "evidence": evidence,
+            "blockers": blocker_items,
+            "trace": trace_ref("legacy_authority_plane", summary),
+        }
+        return validate_instance("legacy-authority-plane-v1", plane)
+
+    def legacy_authority_inventory(
+        self,
+        *,
+        inventory_id: str,
+        owner_repo: str,
+        surfaces: list[str],
+        planes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        for plane in planes:
+            validate_instance("legacy-authority-plane-v1", plane)
+        disposition_counts = {disposition: 0 for disposition in LEGACY_PLANE_DISPOSITIONS}
+        high_agency_count = 0
+        blockers: list[str] = []
+        for plane in planes:
+            disposition = str(plane.get("disposition") or "")
+            if disposition in disposition_counts:
+                disposition_counts[disposition] += 1
+            if self._legacy_plane_has_high_agency_risk(dict(plane.get("authority_risk") or {})):
+                high_agency_count += 1
+            for blocker in plane.get("blockers", []):
+                blockers.append(str(blocker))
+            if disposition == "release_blocker":
+                blockers.append(f"{plane.get('plane_id', 'legacy-plane:unknown')} is a release blocker")
+        release_blocker_count = disposition_counts["release_blocker"]
+        ready = release_blocker_count == 0 and not blockers
+        inventory = {
+            "schema_version": "legacy-authority-inventory-v1",
+            "inventory_id": inventory_id,
+            "created_at": _now(),
+            "scope": {
+                "owner_repo": owner_repo,
+                "surfaces": surfaces,
+            },
+            "planes": planes,
+            "summary": {
+                "plane_count": len(planes),
+                "removed_count": disposition_counts["removed"],
+                "disabled_count": disposition_counts["disabled"],
+                "compat_no_authority_count": disposition_counts["compat_no_authority"],
+                "rebound_to_harness_evidence_count": disposition_counts["rebound_to_harness_evidence"],
+                "converted_to_harness_consumer_count": disposition_counts["converted_to_harness_consumer"],
+                "release_blocker_count": release_blocker_count,
+                "high_agency_risk_count": high_agency_count,
+            },
+            "release_gate": {
+                "zero_high_agency_legacy_local_gates": ready,
+                "ready_for_readiness_promotion": ready,
+                "blockers": blockers,
+            },
+        }
+        return validate_instance("legacy-authority-inventory-v1", inventory)
+
     def telegram_live_qa_case(
         self,
         *,
@@ -1069,3 +1193,38 @@ class HarnessKernel:
             or (action_type == "browser_action" and requires_confirmation),
             "publish_allowed": action_type in {"publish", "deploy", "open_pr"},
         }
+
+    @staticmethod
+    def _legacy_plane_has_high_agency_risk(authority_risk: dict[str, Any]) -> bool:
+        return any(bool(authority_risk.get(key)) for key in LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS)
+
+    def _validate_legacy_plane_disposition(
+        self,
+        *,
+        authority_risk: dict[str, bool],
+        disposition: str,
+        governor_required: bool,
+        evidence_only: bool,
+        consumer_of_governor: bool,
+        ledger_required: bool,
+        blockers: list[str],
+    ) -> None:
+        high_agency_risk = self._legacy_plane_has_high_agency_risk(authority_risk)
+        if disposition == "release_blocker":
+            if not blockers:
+                raise ValueError("release-blocker legacy authority planes require at least one blocker.")
+            return
+        if blockers:
+            raise ValueError("non-blocking legacy authority planes cannot carry release blockers.")
+        if disposition in {"removed", "disabled"}:
+            return
+        if disposition == "compat_no_authority" and high_agency_risk:
+            raise ValueError("compat_no_authority planes cannot retain high-agency execution risk.")
+        if disposition == "rebound_to_harness_evidence":
+            if high_agency_risk:
+                raise ValueError("evidence-only legacy planes cannot retain high-agency execution risk.")
+            if not evidence_only or consumer_of_governor:
+                raise ValueError("rebound_to_harness_evidence requires evidence_only and no consumer authority.")
+        if disposition == "converted_to_harness_consumer":
+            if not (governor_required and consumer_of_governor and ledger_required):
+                raise ValueError("converted legacy consumers require Governor authority and tool ledgers.")

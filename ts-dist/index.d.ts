@@ -282,6 +282,64 @@ export interface HarnessRunV1 {
         remaining_risks?: string[];
     };
 }
+export type LegacyAuthorityPlaneDisposition = 'removed' | 'disabled' | 'compat_no_authority' | 'rebound_to_harness_evidence' | 'converted_to_harness_consumer' | 'release_blocker';
+export type LegacyAuthorityPlaneType = 'keyword_detector' | 'regex_router' | 'pending_state_helper' | 'memory_override' | 'mission_helper' | 'machine_origin_policy' | 'local_dispatcher' | 'template_reply' | 'schedule_trigger' | 'publish_hook' | 'tool_launcher' | 'unknown';
+export interface LegacyAuthorityRisk {
+    can_execute: boolean;
+    can_mutate_state: boolean;
+    can_route_turns: boolean;
+    can_write_memory: boolean;
+    can_launch_mission: boolean;
+    can_call_network: boolean;
+    can_publish: boolean;
+    can_schedule: boolean;
+}
+export interface LegacyAuthorityPlaneV1 {
+    schema_version: 'legacy-authority-plane-v1';
+    plane_id: string;
+    created_at: string;
+    owner_repo: string;
+    surface: HarnessCoreSurface;
+    plane_type: LegacyAuthorityPlaneType;
+    source_ref: HarnessCoreArtifactRef;
+    authority_risk: LegacyAuthorityRisk;
+    disposition: LegacyAuthorityPlaneDisposition;
+    harness_binding: {
+        governor_required: boolean;
+        evidence_only: boolean;
+        consumer_of_governor: boolean;
+        ledger_required: boolean;
+        notes?: string;
+    };
+    evidence: HarnessCoreEvidenceRef[];
+    blockers: string[];
+    trace: HarnessCoreTraceRef;
+}
+export interface LegacyAuthorityInventoryV1 {
+    schema_version: 'legacy-authority-inventory-v1';
+    inventory_id: string;
+    created_at: string;
+    scope: {
+        owner_repo: string;
+        surfaces: HarnessCoreSurface[];
+    };
+    planes: LegacyAuthorityPlaneV1[];
+    summary: {
+        plane_count: number;
+        removed_count: number;
+        disabled_count: number;
+        compat_no_authority_count: number;
+        rebound_to_harness_evidence_count: number;
+        converted_to_harness_consumer_count: number;
+        release_blocker_count: number;
+        high_agency_risk_count: number;
+    };
+    release_gate: {
+        zero_high_agency_legacy_local_gates: boolean;
+        ready_for_readiness_promotion: boolean;
+        blockers: string[];
+    };
+}
 export type TelegramLiveQaRisk = 'safe' | 'mission' | 'writes_files' | 'external';
 export type TelegramLiveQaVerdict = 'pass' | 'fail' | 'blocked' | 'needs-retest' | 'untested';
 export interface TelegramLiveQaEvidencePacketV1 {
@@ -529,6 +587,28 @@ export declare function createHarnessCoreHarnessRun(input: {
     summary: string;
     remaining_risks?: string[];
 }): HarnessRunV1;
+export declare function createHarnessCoreLegacyAuthorityPlane(input: {
+    id: string;
+    owner_repo: string;
+    surface: HarnessCoreSurface;
+    plane_type: LegacyAuthorityPlaneType;
+    source_path: string;
+    summary: string;
+    authority_risk: Partial<LegacyAuthorityRisk>;
+    disposition: LegacyAuthorityPlaneDisposition;
+    evidence: HarnessCoreEvidenceRef[];
+    governor_required?: boolean;
+    evidence_only?: boolean;
+    consumer_of_governor?: boolean;
+    ledger_required?: boolean;
+    blockers?: string[];
+}): LegacyAuthorityPlaneV1;
+export declare function createHarnessCoreLegacyAuthorityInventory(input: {
+    id: string;
+    owner_repo: string;
+    surfaces: HarnessCoreSurface[];
+    planes: LegacyAuthorityPlaneV1[];
+}): LegacyAuthorityInventoryV1;
 export declare function createTelegramLiveQaEvidencePacket(input: {
     generated_at?: string;
     run_id?: string;
