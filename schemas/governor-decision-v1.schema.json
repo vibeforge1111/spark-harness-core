@@ -105,6 +105,9 @@
               "action_authorized": { "const": true },
               "authorized_action_count": { "minimum": 1 }
             }
+          },
+          "tool_ledgers": {
+            "minItems": 1
           }
         }
       }

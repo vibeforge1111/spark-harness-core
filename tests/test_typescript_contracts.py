@@ -142,7 +142,7 @@ class TypeScriptContractTests(unittest.TestCase):
                 can_route_turns: true,
                 can_launch_mission: true
               },
-              disposition: 'converted_to_harness_consumer',
+              disposition: 'canonical_consumer',
               evidence: [evidence],
               governor_required: true,
               consumer_of_governor: true,
@@ -156,7 +156,7 @@ class TypeScriptContractTests(unittest.TestCase):
               source_path: 'src/intent-keywords.ts',
               summary: 'Keyword detector now submits evidence only.',
               authority_risk: {},
-              disposition: 'rebound_to_harness_evidence',
+              disposition: 'evidence_adapter',
               evidence: [evidence],
               evidence_only: true
             });
@@ -181,7 +181,7 @@ class TypeScriptContractTests(unittest.TestCase):
                   can_route_turns: true,
                   can_launch_mission: true
                 },
-                disposition: 'compat_no_authority',
+                disposition: 'evidence_adapter',
                 evidence: [evidence]
               });
             } catch (error) {
@@ -431,6 +431,34 @@ class TypeScriptContractTests(unittest.TestCase):
               summary: 'Spawner dispatch completed after Governor allow authorization.',
               output_path_or_uri: 'spawner://missions/dispatch-vnext-test/result'
             });
+            const governorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: authorizedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            const copiedGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            copiedGovernorDecision.tool_ledgers[0].action_id = 'action:copied-stale-ledger';
+            copiedGovernorDecision.tool_ledgers[0].authorization.action_id = 'action:copied-stale-ledger';
+            const copiedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: copiedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            let copiedLedgerError = '';
+            try {
+              const copiedLedger = JSON.parse(JSON.stringify(authorizedGovernorDecision.tool_ledgers[0]));
+              copiedLedger.action_id = 'action:copied-stale-ledger';
+              core.finalizeHarnessCoreToolCallLedger({
+                ledger: copiedLedger,
+                status: 'success',
+                summary: 'Copied ledger must not finalize as execution proof.',
+                output_path_or_uri: 'spawner://missions/copied-ledger/result'
+              });
+            } catch (error) {
+              copiedLedgerError = String(error && error.message || error);
+            }
             const interruptedEnvelope = core.createHarnessCoreActionEnvelopeVNext({
               surface: 'telegram',
               ownerSystem: 'spark-publisher',
@@ -490,6 +518,9 @@ class TypeScriptContractTests(unittest.TestCase):
               governorDecision,
               authorizedGovernorDecision,
               finalizedAuthorizedLedger,
+              governorConsumerVerification,
+              copiedGovernorConsumerVerification,
+              copiedLedgerError,
               interruptedGovernorDecision,
               blockedFinalizeError,
               interruptedNotStartedLedger
@@ -518,10 +549,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["run"]["schema_version"], "harness-run-v1")
         self.assertEqual(payload["run"]["verdict"]["status"], "passed")
         self.assertEqual(payload["legacyInventory"]["schema_version"], "legacy-authority-inventory-v1")
-        self.assertEqual(payload["legacyInventory"]["summary"]["converted_to_harness_consumer_count"], 1)
-        self.assertEqual(payload["legacyInventory"]["summary"]["rebound_to_harness_evidence_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["canonical_consumer_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["evidence_adapter_count"], 1)
         self.assertTrue(payload["legacyInventory"]["release_gate"]["zero_high_agency_legacy_local_gates"])
-        self.assertIn("compat_no_authority", payload["blockedLegacyPlaneError"])
+        self.assertIn("evidence adapters cannot retain high-agency", payload["blockedLegacyPlaneError"])
         self.assertEqual(payload["telegramLiveQaPacket"]["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
         self.assertEqual(payload["telegramLiveQaPacket"]["selection"]["case_count"], 1)
         self.assertEqual(payload["telegramLiveQaPacket"]["summary"]["untested"], 1)
@@ -551,9 +582,14 @@ class TypeScriptContractTests(unittest.TestCase):
         )
         self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "launch_mission")
         self.assertEqual(payload["governorDecision"]["schema_version"], "governor-decision-v1")
-        self.assertEqual(payload["governorDecision"]["outcome"], "execute")
+        self.assertEqual(payload["governorDecision"]["outcome"], "degrade")
         self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
         self.assertEqual(payload["governorDecision"]["execution_boundary"]["authorized_action_count"], 1)
+        self.assertFalse(payload["governorDecision"]["execution_boundary"]["action_authorized"])
+        self.assertIn(
+            "governor_missing_tool_ledger_for_authorized_execution",
+            payload["governorDecision"]["execution_boundary"]["reasons"],
+        )
         self.assertEqual(payload["authorizedGovernorDecision"]["schema_version"], "governor-decision-v1")
         self.assertEqual(payload["authorizedGovernorDecision"]["outcome"], "execute")
         self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["verdict"], "allow")
@@ -564,6 +600,14 @@ class TypeScriptContractTests(unittest.TestCase):
         )
         self.assertEqual(payload["finalizedAuthorizedLedger"]["result"]["status"], "success")
         self.assertEqual(payload["finalizedAuthorizedLedger"]["lifecycle"][-1]["verdict"], "passed")
+        self.assertTrue(payload["governorConsumerVerification"]["allowed"])
+        self.assertEqual(payload["governorConsumerVerification"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertFalse(payload["copiedGovernorConsumerVerification"]["allowed"])
+        self.assertIn(
+            "governor_missing_matching_tool_ledger",
+            payload["copiedGovernorConsumerVerification"]["reason_codes"],
+        )
+        self.assertIn("authorization binding mismatch", payload["copiedLedgerError"])
         self.assertEqual(payload["interruptedGovernorDecision"]["outcome"], "interrupt")
         self.assertEqual(payload["interruptedGovernorDecision"]["authorizations"][0]["verdict"], "interrupt")
         self.assertIn("allow authorization", payload["blockedFinalizeError"])

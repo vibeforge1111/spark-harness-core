@@ -169,6 +169,22 @@ export interface GovernorDecisionV1 {
     evidence: HarnessCoreEvidenceRef[];
     trace: HarnessCoreTraceRef;
 }
+export interface HarnessCoreGovernorConsumerVerification {
+    schema_version: 'governor-consumer-verification-v1';
+    allowed: boolean;
+    reason_codes: string[];
+    source_kind: 'governor_decision' | 'missing_governor_decision';
+    decision_id: string | null;
+    turn_id: string | null;
+    outcome: HarnessCoreGovernorOutcome | null;
+    expected_capability_id: string | null;
+    expected_action_type: HarnessCoreActionType | null;
+    tool_name: string | null;
+    action_id: string | null;
+    capability_id: string | null;
+    authorization_decision_id: string | null;
+    ledger_id: string | null;
+}
 export type HarnessCoreReadinessCategoryName = 'execution' | 'tools' | 'context' | 'lifecycle' | 'observability' | 'verification' | 'governance';
 export interface HarnessCoreCategoryScore {
     score: number;
@@ -282,7 +298,7 @@ export interface HarnessRunV1 {
         remaining_risks?: string[];
     };
 }
-export type LegacyAuthorityPlaneDisposition = 'removed' | 'disabled' | 'compat_no_authority' | 'rebound_to_harness_evidence' | 'converted_to_harness_consumer' | 'release_blocker';
+export type LegacyAuthorityPlaneDisposition = 'removed' | 'quarantined' | 'evidence_adapter' | 'canonical_consumer' | 'release_blocker';
 export type LegacyAuthorityPlaneType = 'keyword_detector' | 'regex_router' | 'pending_state_helper' | 'memory_override' | 'mission_helper' | 'machine_origin_policy' | 'local_dispatcher' | 'template_reply' | 'schedule_trigger' | 'publish_hook' | 'tool_launcher' | 'unknown';
 export interface LegacyAuthorityRisk {
     can_execute: boolean;
@@ -327,10 +343,9 @@ export interface LegacyAuthorityInventoryV1 {
     summary: {
         plane_count: number;
         removed_count: number;
-        disabled_count: number;
-        compat_no_authority_count: number;
-        rebound_to_harness_evidence_count: number;
-        converted_to_harness_consumer_count: number;
+        quarantined_count: number;
+        evidence_adapter_count: number;
+        canonical_consumer_count: number;
         release_blocker_count: number;
         high_agency_risk_count: number;
     };
@@ -533,6 +548,24 @@ export declare function createHarnessCoreGovernorDecision(input: {
     reply_style?: GovernorDecisionV1['reply_contract']['style'];
     reply_instruction?: string;
 }): GovernorDecisionV1;
+export declare function verifyHarnessCoreGovernorExecutionAuthority(input: {
+    governor_decision?: GovernorDecisionV1 | null;
+    expected_capability_id: string;
+    expected_action_type?: HarnessCoreActionType;
+    tool_name?: string;
+    action_id?: string;
+    allow_read_only?: boolean;
+    require_pre_execution_ledger?: boolean;
+}): HarnessCoreGovernorConsumerVerification;
+export declare function verifyHarnessCoreGovernorToolAuthority(input: {
+    governor_decision?: GovernorDecisionV1 | null;
+    tool_name: string;
+    owner_system: string;
+    action_type: HarnessCoreActionType;
+    action_id?: string;
+    allow_read_only?: boolean;
+    require_pre_execution_ledger?: boolean;
+}): HarnessCoreGovernorConsumerVerification;
 export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     envelope: TurnIntentEnvelopeVNext;
     tool_name: string;

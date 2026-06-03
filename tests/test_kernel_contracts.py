@@ -19,6 +19,7 @@ from spark_harness_core.legacy_turn_intent import (
     build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
+    verify_governor_tool_authority,
 )
 from spark_harness_core.cli import _parse_category_score, _parse_gate, main as cli_main
 from spark_harness_core.schemas import check_all_schemas, load_schema, validate_instance
@@ -221,6 +222,14 @@ class KernelContractTests(unittest.TestCase):
             confidence=0.94,
         )
         authorization = kernel.authorize(envelope, action)
+        missing_ledger_decision = kernel.governor_decision(envelope, authorizations=[authorization])
+        self.assertEqual(missing_ledger_decision["outcome"], "degrade")
+        self.assertFalse(missing_ledger_decision["execution_boundary"]["action_authorized"])
+        self.assertIn(
+            "governor_missing_tool_ledger_for_authorized_execution",
+            missing_ledger_decision["execution_boundary"]["reasons"],
+        )
+
         ledger = kernel.record_tool_call(
             envelope=envelope,
             action=action,
@@ -235,6 +244,76 @@ class KernelContractTests(unittest.TestCase):
         self.assertTrue(decision["execution_boundary"]["action_authorized"])
         self.assertEqual(decision["execution_boundary"]["authorized_action_count"], 1)
         self.assertEqual(decision["tool_ledgers"][0]["result"]["status"], "not_started")
+
+        invalid = clone(decision)
+        invalid["tool_ledgers"] = []
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", invalid)
+
+    def test_governor_consumer_verifier_requires_exact_tool_ledger_binding(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="write_memory",
+            risk_tier="low",
+            summary="Write an explicit Telegram profile fact.",
+            args_path="telegram://turns/req-memory-write/actions/memory.write",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's favorite color.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+        )
+        decision = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+
+        verified = kernel.verify_governor_execution_authority(
+            decision,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="write_memory",
+            tool_name="memory.write",
+        )
+
+        self.assertTrue(verified["allowed"])
+        self.assertEqual(verified["reason_codes"], [])
+        self.assertEqual(verified["action_id"], action["action_id"])
+        self.assertEqual(verified["authorization_decision_id"], authorization["decision_id"])
+        self.assertEqual(verified["ledger_id"], ledger["ledger_id"])
+
+        copied = clone(decision)
+        copied["tool_ledgers"][0]["action_id"] = "action:copied-ledger"
+        copied["tool_ledgers"][0]["authorization"]["action_id"] = "action:copied-ledger"
+        blocked = kernel.verify_governor_execution_authority(
+            copied,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="write_memory",
+            tool_name="memory.write",
+        )
+
+        self.assertFalse(blocked["allowed"])
+        self.assertIn("governor_missing_matching_tool_ledger", blocked["reason_codes"])
+
+        wrapper_verified = verify_governor_tool_authority(
+            decision,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        self.assertTrue(wrapper_verified["allowed"])
 
     def test_governor_decision_interrupts_high_risk_actions(self) -> None:
         kernel = HarnessKernel(surface="telegram")
@@ -342,6 +421,29 @@ class KernelContractTests(unittest.TestCase):
             summary="Unit tests passed.",
         )
         self.assertEqual(ledger["result"]["status"], "success")
+
+        stale_decision = clone(decision)
+        stale_decision["action_id"] = "action:copied-stale-authorization"
+        with self.assertRaisesRegex(ValueError, "authorization does not match proposed action"):
+            kernel.record_tool_call(
+                envelope=envelope,
+                action=action,
+                authorization=stale_decision,
+                tool_name="python3 -m unittest",
+                status="success",
+                output_path="experience/private/unittest-output.txt",
+                summary="Copied authorization must not be accepted.",
+            )
+
+        copied_ledger = clone(ledger)
+        copied_ledger["action_id"] = "action:copied-stale-ledger"
+        with self.assertRaisesRegex(ValueError, "tool ledger authorization binding mismatch"):
+            kernel.finalize_tool_call_ledger(
+                copied_ledger,
+                status="success",
+                output_path="experience/private/copied-ledger-output.txt",
+                summary="Copied ledger must not finalize as execution proof.",
+            )
 
     def test_tool_ledger_cannot_record_execution_without_allow_authorization(self) -> None:
         kernel = HarnessKernel(surface="telegram")
@@ -1320,7 +1422,7 @@ class KernelContractTests(unittest.TestCase):
                 "can_publish": False,
                 "can_schedule": False,
             },
-            disposition="converted_to_harness_consumer",
+            disposition="canonical_consumer",
             evidence=evidence,
             governor_required=True,
             consumer_of_governor=True,
@@ -1343,7 +1445,7 @@ class KernelContractTests(unittest.TestCase):
                 "can_publish": False,
                 "can_schedule": False,
             },
-            disposition="rebound_to_harness_evidence",
+            disposition="evidence_adapter",
             evidence=evidence,
             evidence_only=True,
         )
@@ -1356,8 +1458,8 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(inventory["schema_version"], "legacy-authority-inventory-v1")
         self.assertEqual(inventory["summary"]["plane_count"], 2)
-        self.assertEqual(inventory["summary"]["converted_to_harness_consumer_count"], 1)
-        self.assertEqual(inventory["summary"]["rebound_to_harness_evidence_count"], 1)
+        self.assertEqual(inventory["summary"]["canonical_consumer_count"], 1)
+        self.assertEqual(inventory["summary"]["evidence_adapter_count"], 1)
         self.assertEqual(inventory["summary"]["release_blocker_count"], 0)
         self.assertTrue(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
         validate_instance("legacy-authority-inventory-v1", inventory)
@@ -1384,7 +1486,7 @@ class KernelContractTests(unittest.TestCase):
                 source_path="src/bad-dispatcher.ts",
                 summary="This still looks like a local executor.",
                 authority_risk=high_agency_risk,
-                disposition="compat_no_authority",
+                disposition="evidence_adapter",
                 evidence=[sample_evidence("policy")],
             )
 

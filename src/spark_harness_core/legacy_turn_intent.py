@@ -792,3 +792,31 @@ def finalize_legacy_tool_call_ledger(
         error_path=error_path,
         rollback_path=rollback_path,
     )
+
+
+def verify_governor_tool_authority(
+    governor_decision: dict[str, Any] | None,
+    *,
+    tool_name: str,
+    owner_system: str,
+    mutation_class: MutationClass,
+    publishes: bool = False,
+    external_network: bool = False,
+    action_id: str | None = None,
+    allow_read_only: bool = False,
+    require_pre_execution_ledger: bool = True,
+) -> dict[str, Any]:
+    kernel = HarnessKernel(
+        surface=_surface(str((governor_decision or {}).get("surface") or "future_surface"))
+        if isinstance(governor_decision, dict)
+        else "future_surface"
+    )
+    return kernel.verify_governor_execution_authority(
+        governor_decision,
+        expected_capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+        expected_action_type=_action_type(mutation_class, publishes, external_network),
+        tool_name=tool_name,
+        action_id=action_id,
+        allow_read_only=allow_read_only,
+        require_pre_execution_ledger=require_pre_execution_ledger,
+    )

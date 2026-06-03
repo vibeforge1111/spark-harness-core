@@ -118,10 +118,9 @@ LIVE_QA_VERDICTS = ("pass", "fail", "blocked", "needs-retest", "untested")
 EXECUTED_TOOL_STATUSES = frozenset({"success", "failure", "partial", "rolled_back"})
 LEGACY_PLANE_DISPOSITIONS = (
     "removed",
-    "disabled",
-    "compat_no_authority",
-    "rebound_to_harness_evidence",
-    "converted_to_harness_consumer",
+    "quarantined",
+    "evidence_adapter",
+    "canonical_consumer",
     "release_blocker",
 )
 LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS = (
@@ -296,7 +295,7 @@ class HarnessKernel:
         for ledger in ledger_items:
             validate_instance("tool-call-ledger-v1", ledger)
 
-        outcome = self._governor_outcome(envelope, authorization_items)
+        outcome = self._governor_outcome(envelope, authorization_items, ledger_items)
         authorized_action_count = sum(1 for item in authorization_items if item.get("verdict") == "allow")
         requires_confirmation = bool(envelope["action_authority"].get("requires_human_confirmation")) or any(
             item.get("approval", {}).get("required") for item in authorization_items
@@ -333,6 +332,84 @@ class HarnessKernel:
         }
         return validate_instance("governor-decision-v1", decision)
 
+    def verify_governor_execution_authority(
+        self,
+        governor_decision: dict[str, Any] | None,
+        *,
+        expected_capability_id: str,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+        action_id: str | None = None,
+        allow_read_only: bool = False,
+        require_pre_execution_ledger: bool = True,
+    ) -> dict[str, Any]:
+        if not isinstance(governor_decision, dict):
+            return self._governor_consumer_verification(
+                allowed=False,
+                reason_codes=["missing_governor_decision"],
+                governor_decision=None,
+            )
+        try:
+            decision = validate_instance("governor-decision-v1", governor_decision)
+        except Exception:
+            return self._governor_consumer_verification(
+                allowed=False,
+                reason_codes=["invalid_governor_decision"],
+                governor_decision=governor_decision,
+            )
+
+        reason_codes: list[str] = []
+        outcome = str(decision.get("outcome") or "")
+        allowed_outcomes = {"execute"}
+        if allow_read_only:
+            allowed_outcomes.add("read_only")
+        if outcome not in allowed_outcomes:
+            reason_codes.append(f"governor_outcome_{outcome or 'missing'}")
+
+        boundary = decision.get("execution_boundary") if isinstance(decision.get("execution_boundary"), dict) else {}
+        if outcome == "execute" and not bool(boundary.get("action_authorized")):
+            reason_codes.append("governor_action_not_authorized")
+
+        turn_id = str(decision.get("turn_id") or "")
+        matching_authorization = self._matching_governor_authorization(
+            decision,
+            turn_id=turn_id,
+            expected_capability_id=expected_capability_id,
+            action_id=action_id,
+        )
+        if matching_authorization is None:
+            reason_codes.append("governor_missing_matching_authorization")
+        elif not self._has_matching_governor_proposed_action(
+            decision,
+            authorization=matching_authorization,
+            expected_action_type=expected_action_type,
+        ):
+            reason_codes.append("governor_missing_matching_proposed_action")
+
+        matching_ledger = None
+        if matching_authorization is not None:
+            matching_ledger = self._matching_governor_tool_ledger(
+                decision,
+                authorization=matching_authorization,
+                turn_id=turn_id,
+                expected_capability_id=expected_capability_id,
+                tool_name=tool_name,
+                require_pre_execution_ledger=require_pre_execution_ledger,
+            )
+        if outcome == "execute" and matching_ledger is None:
+            reason_codes.append("governor_missing_matching_tool_ledger")
+
+        return self._governor_consumer_verification(
+            allowed=not reason_codes,
+            reason_codes=reason_codes,
+            governor_decision=decision,
+            authorization=matching_authorization,
+            ledger=matching_ledger,
+            expected_capability_id=expected_capability_id,
+            expected_action_type=expected_action_type,
+            tool_name=tool_name,
+        )
+
     def record_tool_call(
         self,
         *,
@@ -345,6 +422,7 @@ class HarnessKernel:
         summary: str,
     ) -> dict[str, Any]:
         authorization_verdict = str(authorization.get("verdict") or "")
+        self._assert_authorization_matches_action(envelope, action, authorization)
         self._assert_execution_status_authorized(authorization_verdict, status)
         if authorization_verdict == "allow":
             authorize_stage_verdict = "passed"
@@ -394,6 +472,7 @@ class HarnessKernel:
         rollback_path: str | None = None,
     ) -> dict[str, Any]:
         validate_instance("tool-call-ledger-v1", ledger)
+        self._assert_ledger_authorization_binding(ledger)
         self._assert_execution_status_authorized(str(ledger["authorization"].get("verdict") or ""), status)
         updated = deepcopy(ledger)
         execute_stage = {"stage": "execute", "at": _now(), "verdict": self._execute_verdict_for_status(status)}
@@ -800,10 +879,9 @@ class HarnessKernel:
             "summary": {
                 "plane_count": len(planes),
                 "removed_count": disposition_counts["removed"],
-                "disabled_count": disposition_counts["disabled"],
-                "compat_no_authority_count": disposition_counts["compat_no_authority"],
-                "rebound_to_harness_evidence_count": disposition_counts["rebound_to_harness_evidence"],
-                "converted_to_harness_consumer_count": disposition_counts["converted_to_harness_consumer"],
+                "quarantined_count": disposition_counts["quarantined"],
+                "evidence_adapter_count": disposition_counts["evidence_adapter"],
+                "canonical_consumer_count": disposition_counts["canonical_consumer"],
                 "release_blocker_count": release_blocker_count,
                 "high_agency_risk_count": high_agency_count,
             },
@@ -1078,13 +1156,20 @@ class HarnessKernel:
             live_surface_required=live_surface_required,
         )
 
-    def _governor_outcome(self, envelope: dict[str, Any], authorizations: list[dict[str, Any]]) -> str:
+    def _governor_outcome(
+        self,
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+    ) -> str:
         state = str(envelope["action_authority"]["state"])
         selected_move = str(envelope["selected_move"])
         action_count = len(envelope.get("proposed_actions", []))
         verdicts = [str(item.get("verdict") or "") for item in authorizations]
         if state == "executable" and "allow" in verdicts:
-            return "execute"
+            if self._has_matching_execution_ledger(envelope, authorizations, tool_ledgers):
+                return "execute"
+            return "degrade"
         if state == "confirmation_required" or "interrupt" in verdicts:
             return "interrupt"
         if state == "read_only":
@@ -1096,6 +1181,192 @@ class HarnessKernel:
         if selected_move.startswith("chat_") and action_count == 0:
             return "chat_only"
         return "degrade"
+
+    @staticmethod
+    def _has_matching_execution_ledger(
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+    ) -> bool:
+        allowed_actions = {
+            (
+                str(authorization.get("action_id") or ""),
+                str(authorization.get("capability_id") or ""),
+            )
+            for authorization in authorizations
+            if authorization.get("verdict") == "allow"
+        }
+        if not allowed_actions:
+            return False
+        turn_id = str(envelope.get("turn_id") or "")
+        proposed_action_ids = {str(action.get("action_id") or "") for action in envelope.get("proposed_actions", [])}
+        for ledger in tool_ledgers:
+            action_key = (
+                str(ledger.get("action_id") or ""),
+                str(ledger.get("capability_id") or ""),
+            )
+            authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+            if (
+                str(ledger.get("turn_id") or "") == turn_id
+                and str(ledger.get("action_id") or "") in proposed_action_ids
+                and action_key in allowed_actions
+                and authorization.get("verdict") == "allow"
+                and str(authorization.get("turn_id") or "") == turn_id
+                and str(authorization.get("action_id") or "") == str(ledger.get("action_id") or "")
+                and str(authorization.get("capability_id") or "") == str(ledger.get("capability_id") or "")
+                and str(authorization.get("decision_id") or "")
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _matching_governor_authorization(
+        governor_decision: dict[str, Any],
+        *,
+        turn_id: str,
+        expected_capability_id: str,
+        action_id: str | None,
+    ) -> dict[str, Any] | None:
+        authorizations = governor_decision.get("authorizations")
+        if not isinstance(authorizations, list):
+            return None
+        for authorization in authorizations:
+            if not isinstance(authorization, dict):
+                continue
+            if str(authorization.get("verdict") or "") != "allow":
+                continue
+            if str(authorization.get("turn_id") or "") != turn_id:
+                continue
+            if str(authorization.get("capability_id") or "") != expected_capability_id:
+                continue
+            if action_id is not None and str(authorization.get("action_id") or "") != str(action_id):
+                continue
+            if not str(authorization.get("decision_id") or ""):
+                continue
+            return authorization
+        return None
+
+    @staticmethod
+    def _has_matching_governor_proposed_action(
+        governor_decision: dict[str, Any],
+        *,
+        authorization: dict[str, Any],
+        expected_action_type: str | None,
+    ) -> bool:
+        envelope = governor_decision.get("envelope") if isinstance(governor_decision.get("envelope"), dict) else {}
+        proposed_actions = envelope.get("proposed_actions") if isinstance(envelope.get("proposed_actions"), list) else []
+        for action in proposed_actions:
+            if not isinstance(action, dict):
+                continue
+            if str(action.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(action.get("capability_id") or "") != str(authorization.get("capability_id") or ""):
+                continue
+            if expected_action_type is not None and str(action.get("action_type") or "") != expected_action_type:
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _matching_governor_tool_ledger(
+        governor_decision: dict[str, Any],
+        *,
+        authorization: dict[str, Any],
+        turn_id: str,
+        expected_capability_id: str,
+        tool_name: str | None,
+        require_pre_execution_ledger: bool,
+    ) -> dict[str, Any] | None:
+        ledgers = governor_decision.get("tool_ledgers")
+        if not isinstance(ledgers, list):
+            return None
+        for ledger in ledgers:
+            if not isinstance(ledger, dict):
+                continue
+            ledger_authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+            result = ledger.get("result") if isinstance(ledger.get("result"), dict) else {}
+            if str(ledger.get("turn_id") or "") != turn_id:
+                continue
+            if str(ledger.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(ledger.get("capability_id") or "") != expected_capability_id:
+                continue
+            if tool_name is not None and str(ledger.get("tool_name") or "") != str(tool_name):
+                continue
+            if require_pre_execution_ledger and str(result.get("status") or "") != "not_started":
+                continue
+            if str(ledger_authorization.get("verdict") or "") != "allow":
+                continue
+            if str(ledger_authorization.get("turn_id") or "") != turn_id:
+                continue
+            if str(ledger_authorization.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(ledger_authorization.get("capability_id") or "") != expected_capability_id:
+                continue
+            if str(ledger_authorization.get("decision_id") or "") != str(authorization.get("decision_id") or ""):
+                continue
+            return ledger
+        return None
+
+    @staticmethod
+    def _governor_consumer_verification(
+        *,
+        allowed: bool,
+        reason_codes: list[str],
+        governor_decision: dict[str, Any] | None,
+        authorization: dict[str, Any] | None = None,
+        ledger: dict[str, Any] | None = None,
+        expected_capability_id: str | None = None,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": allowed,
+            "reason_codes": reason_codes,
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+            "decision_id": str((governor_decision or {}).get("decision_id") or "") or None,
+            "turn_id": str((governor_decision or {}).get("turn_id") or "") or None,
+            "outcome": str((governor_decision or {}).get("outcome") or "") or None,
+            "expected_capability_id": expected_capability_id,
+            "expected_action_type": expected_action_type,
+            "tool_name": tool_name,
+            "action_id": str((authorization or {}).get("action_id") or "") or None,
+            "capability_id": str((authorization or {}).get("capability_id") or "") or None,
+            "authorization_decision_id": str((authorization or {}).get("decision_id") or "") or None,
+            "ledger_id": str((ledger or {}).get("ledger_id") or "") or None,
+        }
+
+    @staticmethod
+    def _assert_authorization_matches_action(
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+    ) -> None:
+        mismatches: list[str] = []
+        if str(authorization.get("turn_id") or "") != str(envelope.get("turn_id") or ""):
+            mismatches.append("turn_id")
+        if str(authorization.get("action_id") or "") != str(action.get("action_id") or ""):
+            mismatches.append("action_id")
+        if str(authorization.get("capability_id") or "") != str(action.get("capability_id") or ""):
+            mismatches.append("capability_id")
+        if mismatches:
+            raise ValueError(f"authorization does not match proposed action: {', '.join(mismatches)}")
+
+    @staticmethod
+    def _assert_ledger_authorization_binding(ledger: dict[str, Any]) -> None:
+        authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+        mismatches: list[str] = []
+        if str(authorization.get("turn_id") or "") != str(ledger.get("turn_id") or ""):
+            mismatches.append("turn_id")
+        if str(authorization.get("action_id") or "") != str(ledger.get("action_id") or ""):
+            mismatches.append("action_id")
+        if str(authorization.get("capability_id") or "") != str(ledger.get("capability_id") or ""):
+            mismatches.append("capability_id")
+        if not str(authorization.get("decision_id") or ""):
+            mismatches.append("decision_id")
+        if mismatches:
+            raise ValueError(f"tool ledger authorization binding mismatch: {', '.join(mismatches)}")
 
     def _governor_reasons(
         self,
@@ -1109,6 +1380,11 @@ class HarnessKernel:
         ]
         if outcome == "execute":
             reasons.append("governor_authorized_execution")
+        elif (
+            envelope["action_authority"].get("state") == "executable"
+            and any(authorization.get("verdict") == "allow" for authorization in authorizations)
+        ):
+            reasons.append("governor_missing_tool_ledger_for_authorized_execution")
         elif outcome == "interrupt":
             reasons.append("governor_requires_explicit_confirmation")
         elif outcome == "read_only":
@@ -1354,15 +1630,13 @@ class HarnessKernel:
             return
         if blockers:
             raise ValueError("non-blocking legacy authority planes cannot carry release blockers.")
-        if disposition in {"removed", "disabled"}:
+        if disposition in {"removed", "quarantined"}:
             return
-        if disposition == "compat_no_authority" and high_agency_risk:
-            raise ValueError("compat_no_authority planes cannot retain high-agency execution risk.")
-        if disposition == "rebound_to_harness_evidence":
+        if disposition == "evidence_adapter":
             if high_agency_risk:
-                raise ValueError("evidence-only legacy planes cannot retain high-agency execution risk.")
+                raise ValueError("evidence adapters cannot retain high-agency execution risk.")
             if not evidence_only or consumer_of_governor:
-                raise ValueError("rebound_to_harness_evidence requires evidence_only and no consumer authority.")
-        if disposition == "converted_to_harness_consumer":
+                raise ValueError("evidence_adapter requires evidence_only and no consumer authority.")
+        if disposition == "canonical_consumer":
             if not (governor_required and consumer_of_governor and ledger_required):
-                raise ValueError("converted legacy consumers require Governor authority and tool ledgers.")
+                raise ValueError("canonical legacy consumers require Governor authority and tool ledgers.")

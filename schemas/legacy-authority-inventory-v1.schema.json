@@ -41,20 +41,18 @@
       "required": [
         "plane_count",
         "removed_count",
-        "disabled_count",
-        "compat_no_authority_count",
-        "rebound_to_harness_evidence_count",
-        "converted_to_harness_consumer_count",
+        "quarantined_count",
+        "evidence_adapter_count",
+        "canonical_consumer_count",
         "release_blocker_count",
         "high_agency_risk_count"
       ],
       "properties": {
         "plane_count": { "type": "integer", "minimum": 0 },
         "removed_count": { "type": "integer", "minimum": 0 },
-        "disabled_count": { "type": "integer", "minimum": 0 },
-        "compat_no_authority_count": { "type": "integer", "minimum": 0 },
-        "rebound_to_harness_evidence_count": { "type": "integer", "minimum": 0 },
-        "converted_to_harness_consumer_count": { "type": "integer", "minimum": 0 },
+        "quarantined_count": { "type": "integer", "minimum": 0 },
+        "evidence_adapter_count": { "type": "integer", "minimum": 0 },
+        "canonical_consumer_count": { "type": "integer", "minimum": 0 },
         "release_blocker_count": { "type": "integer", "minimum": 0 },
         "high_agency_risk_count": { "type": "integer", "minimum": 0 }
       }

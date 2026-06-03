@@ -17,6 +17,7 @@ from spark_harness_core.legacy_turn_intent import (
     build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
+    verify_governor_tool_authority,
 )
 from spark_harness_core.schemas import SchemaValidationError, load_schema, validate_instance
 
@@ -38,4 +39,5 @@ __all__ = [
     "parse_turn_intent_envelope",
     "trace_ref",
     "validate_instance",
+    "verify_governor_tool_authority",
 ]

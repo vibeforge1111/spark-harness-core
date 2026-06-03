@@ -193,8 +193,15 @@ function governorOutcomeFor(input) {
     const { envelope, authorizations } = input;
     const state = envelope.action_authority.state;
     const verdicts = new Set(authorizations.map((authorization) => authorization.verdict));
-    if (state === 'executable' && verdicts.has('allow'))
-        return 'execute';
+    if (state === 'executable' && verdicts.has('allow')) {
+        return hasMatchingExecutionLedger({
+            envelope,
+            authorizations,
+            toolLedgers: input.toolLedgers || []
+        })
+            ? 'execute'
+            : 'degrade';
+    }
     if (state === 'confirmation_required' || verdicts.has('interrupt'))
         return 'interrupt';
     if (state === 'read_only')
@@ -206,6 +213,25 @@ function governorOutcomeFor(input) {
     if (envelope.selected_move.startsWith('chat_') && envelope.proposed_actions.length === 0)
         return 'chat_only';
     return 'degrade';
+}
+function hasMatchingExecutionLedger(input) {
+    const allowedActionKeys = new Set(input.authorizations
+        .filter((authorization) => authorization.verdict === 'allow')
+        .map((authorization) => `${authorization.action_id}\n${authorization.capability_id}`));
+    if (allowedActionKeys.size === 0)
+        return false;
+    const proposedActionIds = new Set(input.envelope.proposed_actions.map((action) => action.action_id));
+    return input.toolLedgers.some((ledger) => {
+        const actionKey = `${ledger.action_id}\n${ledger.capability_id}`;
+        return (ledger.turn_id === input.envelope.turn_id &&
+            proposedActionIds.has(ledger.action_id) &&
+            allowedActionKeys.has(actionKey) &&
+            ledger.authorization.verdict === 'allow' &&
+            ledger.authorization.turn_id === input.envelope.turn_id &&
+            ledger.authorization.action_id === ledger.action_id &&
+            ledger.authorization.capability_id === ledger.capability_id &&
+            ledger.authorization.decision_id.length > 0);
+    });
 }
 function defaultGovernorReplyStyle(outcome) {
     return outcome === 'degrade' ? 'compact_status' : 'human_conversational';
@@ -234,6 +260,15 @@ function governorReasonsFor(input) {
         case 'execute':
             reasons.push('governor_authorized_execution');
             break;
+        case 'degrade':
+            if (input.envelope.action_authority.state === 'executable' &&
+                input.authorizations.some((authorization) => authorization.verdict === 'allow')) {
+                reasons.push('governor_missing_tool_ledger_for_authorized_execution');
+            }
+            else {
+                reasons.push('governor_degrades_to_safe_surface_behavior');
+            }
+            break;
         case 'interrupt':
             reasons.push('governor_requires_explicit_confirmation');
             break;
@@ -248,9 +283,6 @@ function governorReasonsFor(input) {
             break;
         case 'deny':
             reasons.push('governor_denies_action_boundary');
-            break;
-        default:
-            reasons.push('governor_degrades_to_safe_surface_behavior');
             break;
     }
     for (const authorization of input.authorizations) {
@@ -267,7 +299,7 @@ function governorReasonsFor(input) {
 export function createHarnessCoreGovernorDecision(input) {
     const authorizations = input.authorizations || [];
     const toolLedgers = input.tool_ledgers || [];
-    const outcome = governorOutcomeFor({ envelope: input.envelope, authorizations });
+    const outcome = governorOutcomeFor({ envelope: input.envelope, authorizations, toolLedgers });
     const authorizedActionCount = authorizations.filter((authorization) => authorization.verdict === 'allow').length;
     const requiresHumanConfirmation = input.envelope.action_authority.requires_human_confirmation ||
         authorizations.some((authorization) => authorization.approval.required);
@@ -304,6 +336,125 @@ export function createHarnessCoreGovernorDecision(input) {
             summary: 'Governor decision created by Spark Harness Core.'
         })
     };
+}
+function createGovernorConsumerVerification(input) {
+    return {
+        schema_version: 'governor-consumer-verification-v1',
+        allowed: input.allowed,
+        reason_codes: input.reasonCodes,
+        source_kind: input.governorDecision ? 'governor_decision' : 'missing_governor_decision',
+        decision_id: input.governorDecision?.decision_id || null,
+        turn_id: input.governorDecision?.turn_id || null,
+        outcome: input.governorDecision?.outcome || null,
+        expected_capability_id: input.expectedCapabilityId || null,
+        expected_action_type: input.expectedActionType || null,
+        tool_name: input.toolName || null,
+        action_id: input.authorization?.action_id || null,
+        capability_id: input.authorization?.capability_id || null,
+        authorization_decision_id: input.authorization?.decision_id || null,
+        ledger_id: input.ledger?.ledger_id || null
+    };
+}
+export function verifyHarnessCoreGovernorExecutionAuthority(input) {
+    const governorDecision = input.governor_decision || null;
+    if (!governorDecision) {
+        return createGovernorConsumerVerification({
+            allowed: false,
+            reasonCodes: ['missing_governor_decision'],
+            governorDecision: null,
+            expectedCapabilityId: input.expected_capability_id,
+            expectedActionType: input.expected_action_type || null,
+            toolName: input.tool_name || null
+        });
+    }
+    const reasonCodes = [];
+    const allowedOutcomes = new Set(['execute']);
+    if (input.allow_read_only)
+        allowedOutcomes.add('read_only');
+    if (!allowedOutcomes.has(governorDecision.outcome)) {
+        reasonCodes.push(`governor_outcome_${governorDecision.outcome || 'missing'}`);
+    }
+    if (governorDecision.outcome === 'execute' && !governorDecision.execution_boundary.action_authorized) {
+        reasonCodes.push('governor_action_not_authorized');
+    }
+    const matchingAuthorization = governorDecision.authorizations.find((authorization) => {
+        if (authorization.verdict !== 'allow')
+            return false;
+        if (authorization.turn_id !== governorDecision.turn_id)
+            return false;
+        if (authorization.capability_id !== input.expected_capability_id)
+            return false;
+        if (input.action_id && authorization.action_id !== input.action_id)
+            return false;
+        return authorization.decision_id.length > 0;
+    });
+    if (!matchingAuthorization) {
+        reasonCodes.push('governor_missing_matching_authorization');
+    }
+    const hasMatchingProposedAction = matchingAuthorization
+        ? governorDecision.envelope.proposed_actions.some((action) => {
+            if (action.action_id !== matchingAuthorization.action_id)
+                return false;
+            if (action.capability_id !== matchingAuthorization.capability_id)
+                return false;
+            if (input.expected_action_type && action.action_type !== input.expected_action_type)
+                return false;
+            return true;
+        })
+        : false;
+    if (matchingAuthorization && !hasMatchingProposedAction) {
+        reasonCodes.push('governor_missing_matching_proposed_action');
+    }
+    const requirePreExecutionLedger = input.require_pre_execution_ledger !== false;
+    const matchingLedger = matchingAuthorization
+        ? governorDecision.tool_ledgers.find((ledger) => {
+            if (ledger.turn_id !== governorDecision.turn_id)
+                return false;
+            if (ledger.action_id !== matchingAuthorization.action_id)
+                return false;
+            if (ledger.capability_id !== input.expected_capability_id)
+                return false;
+            if (input.tool_name && ledger.tool_name !== input.tool_name)
+                return false;
+            if (requirePreExecutionLedger && ledger.result.status !== 'not_started')
+                return false;
+            if (ledger.authorization.verdict !== 'allow')
+                return false;
+            if (ledger.authorization.turn_id !== governorDecision.turn_id)
+                return false;
+            if (ledger.authorization.action_id !== matchingAuthorization.action_id)
+                return false;
+            if (ledger.authorization.capability_id !== input.expected_capability_id)
+                return false;
+            if (ledger.authorization.decision_id !== matchingAuthorization.decision_id)
+                return false;
+            return true;
+        })
+        : undefined;
+    if (governorDecision.outcome === 'execute' && !matchingLedger) {
+        reasonCodes.push('governor_missing_matching_tool_ledger');
+    }
+    return createGovernorConsumerVerification({
+        allowed: reasonCodes.length === 0,
+        reasonCodes,
+        governorDecision,
+        authorization: matchingAuthorization || null,
+        ledger: matchingLedger || null,
+        expectedCapabilityId: input.expected_capability_id,
+        expectedActionType: input.expected_action_type || null,
+        toolName: input.tool_name || null
+    });
+}
+export function verifyHarnessCoreGovernorToolAuthority(input) {
+    return verifyHarnessCoreGovernorExecutionAuthority({
+        governor_decision: input.governor_decision,
+        expected_capability_id: safeHarnessCoreId('capability', `${input.owner_system}:${input.tool_name}`),
+        expected_action_type: input.action_type,
+        tool_name: input.tool_name,
+        action_id: input.action_id,
+        allow_read_only: input.allow_read_only,
+        require_pre_execution_ledger: input.require_pre_execution_ledger
+    });
 }
 export function createHarnessCoreAuthorizedGovernorDecision(input) {
     const action = input.envelope.proposed_actions.find((candidate) => input.action_id
@@ -405,7 +556,22 @@ function assertHarnessCoreExecutionStatusAuthorized(authorizationVerdict, status
         throw new Error('Tool execution status requires allow authorization; blocked or interrupted actions may only record a not_started ledger.');
     }
 }
+function assertHarnessCoreLedgerAuthorizationBinding(ledger) {
+    const mismatches = [];
+    if (ledger.authorization.turn_id !== ledger.turn_id)
+        mismatches.push('turn_id');
+    if (ledger.authorization.action_id !== ledger.action_id)
+        mismatches.push('action_id');
+    if (ledger.authorization.capability_id !== ledger.capability_id)
+        mismatches.push('capability_id');
+    if (!ledger.authorization.decision_id)
+        mismatches.push('decision_id');
+    if (mismatches.length > 0) {
+        throw new Error(`Tool ledger authorization binding mismatch: ${mismatches.join(', ')}`);
+    }
+}
 export function finalizeHarnessCoreToolCallLedger(input) {
+    assertHarnessCoreLedgerAuthorizationBinding(input.ledger);
     assertHarnessCoreExecutionStatusAuthorized(input.ledger.authorization.verdict, input.status);
     const now = input.now || new Date().toISOString();
     const executeStage = {
@@ -571,22 +737,19 @@ function assertLegacyAuthorityPlaneDisposition(input) {
     if (input.blockers.length > 0) {
         throw new Error('non-blocking legacy authority planes cannot carry release blockers');
     }
-    if (input.disposition === 'removed' || input.disposition === 'disabled')
+    if (input.disposition === 'removed' || input.disposition === 'quarantined')
         return;
-    if (input.disposition === 'compat_no_authority' && highAgencyRisk) {
-        throw new Error('compat_no_authority planes cannot retain high-agency execution risk');
-    }
-    if (input.disposition === 'rebound_to_harness_evidence') {
+    if (input.disposition === 'evidence_adapter') {
         if (highAgencyRisk) {
-            throw new Error('evidence-only legacy planes cannot retain high-agency execution risk');
+            throw new Error('evidence adapters cannot retain high-agency execution risk');
         }
         if (!input.evidence_only || input.consumer_of_governor) {
-            throw new Error('rebound_to_harness_evidence requires evidence_only and no consumer authority');
+            throw new Error('evidence_adapter requires evidence_only and no consumer authority');
         }
     }
-    if (input.disposition === 'converted_to_harness_consumer') {
+    if (input.disposition === 'canonical_consumer') {
         if (!(input.governor_required && input.consumer_of_governor && input.ledger_required)) {
-            throw new Error('converted legacy consumers require Governor authority and tool ledgers');
+            throw new Error('canonical legacy consumers require Governor authority and tool ledgers');
         }
     }
 }
@@ -649,10 +812,9 @@ export function createHarnessCoreLegacyAuthorityPlane(input) {
 export function createHarnessCoreLegacyAuthorityInventory(input) {
     const counts = {
         removed: 0,
-        disabled: 0,
-        compat_no_authority: 0,
-        rebound_to_harness_evidence: 0,
-        converted_to_harness_consumer: 0,
+        quarantined: 0,
+        evidence_adapter: 0,
+        canonical_consumer: 0,
         release_blocker: 0
     };
     const blockers = [];
@@ -678,10 +840,9 @@ export function createHarnessCoreLegacyAuthorityInventory(input) {
         summary: {
             plane_count: input.planes.length,
             removed_count: counts.removed,
-            disabled_count: counts.disabled,
-            compat_no_authority_count: counts.compat_no_authority,
-            rebound_to_harness_evidence_count: counts.rebound_to_harness_evidence,
-            converted_to_harness_consumer_count: counts.converted_to_harness_consumer,
+            quarantined_count: counts.quarantined,
+            evidence_adapter_count: counts.evidence_adapter,
+            canonical_consumer_count: counts.canonical_consumer,
             release_blocker_count: counts.release_blocker,
             high_agency_risk_count: highAgencyRiskCount
         },

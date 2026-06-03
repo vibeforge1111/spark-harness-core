@@ -71,10 +71,9 @@
       "type": "string",
       "enum": [
         "removed",
-        "disabled",
-        "compat_no_authority",
-        "rebound_to_harness_evidence",
-        "converted_to_harness_consumer",
+        "quarantined",
+        "evidence_adapter",
+        "canonical_consumer",
         "release_blocker"
       ]
     },
