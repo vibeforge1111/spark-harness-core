@@ -4,7 +4,13 @@ import argparse
 import json
 from pathlib import Path
 
-from spark_harness_core.kernel import READINESS_CATEGORIES, HarnessKernel, artifact_ref, evidence_ref
+from spark_harness_core.kernel import (
+    PROTECTED_EVOLUTION_COMPONENTS,
+    READINESS_CATEGORIES,
+    HarnessKernel,
+    artifact_ref,
+    evidence_ref,
+)
 from spark_harness_core.schemas import check_all_schemas, list_schema_ids, validate_instance
 
 READINESS_GATES = {
@@ -525,20 +531,25 @@ def main(argv: list[str] | None = None) -> int:
             else None
         )
         evidence = [evidence_ref("test_result", "spark-harness-core.cli", args.failure_summary, confidence=0.8)]
-        manifest = kernel.change_manifest(
-            target_component=component,
-            failure_evidence=evidence,
-            root_cause_hypothesis=args.root_cause,
-            edit_summary=args.edit_summary,
-            predicted_fixes=args.predicted_fix,
-            predicted_regression_risks=args.regression_risk,
-            required_tests=args.test_command,
-            rollback_plan=args.rollback_plan,
-            live_proof_required=args.live_proof_required,
-            observed_delta=[kernel.metric(name="manifest_runner_cli", value=True)],
-            verdict=args.manifest_verdict,
-            human_approval_ref=approval,
-        )
+        manifests = []
+        linked_change_id = None
+        if args.component_type not in PROTECTED_EVOLUTION_COMPONENTS or approval is not None:
+            manifest = kernel.change_manifest(
+                target_component=component,
+                failure_evidence=evidence,
+                root_cause_hypothesis=args.root_cause,
+                edit_summary=args.edit_summary,
+                predicted_fixes=args.predicted_fix,
+                predicted_regression_risks=args.regression_risk,
+                required_tests=args.test_command,
+                rollback_plan=args.rollback_plan,
+                live_proof_required=args.live_proof_required,
+                observed_delta=[kernel.metric(name="manifest_runner_cli", value=True)],
+                verdict=args.manifest_verdict,
+                human_approval_ref=approval,
+            )
+            manifests.append(manifest)
+            linked_change_id = manifest["change_id"]
         index = kernel.experience_index(
             entries=[
                 kernel.experience_entry(
@@ -550,7 +561,7 @@ def main(argv: list[str] | None = None) -> int:
                         "Change manifest runner CLI output.",
                     ),
                     tags=["self_evolution", "change_manifest_runner"],
-                    linked_change_id=manifest["change_id"],
+                    linked_change_id=linked_change_id,
                 )
             ]
         )
@@ -574,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
                 experience_index=index,
                 readiness_score=readiness_score,
                 commands=args.test_command,
-                change_manifests=[manifest],
+                target_components=[component] if not manifests else None,
+                change_manifests=manifests,
                 requested_verdict=args.requested_verdict,
                 live_surface_required=args.live_proof_required,
             )

@@ -1477,6 +1477,22 @@ class KernelContractTests(unittest.TestCase):
                 payload = json.loads(stdout.getvalue())
                 validate_instance(schema_name, payload)
 
+    def test_cli_change_manifest_runner_refuses_protected_component_without_approval(self) -> None:
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exit_code = cli_main(["change-manifest-runner", "--component-type", "authority_policy"])
+
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(stdout.getvalue())
+        validate_instance("self-evolution-run-v1", payload)
+        self.assertEqual(payload["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn(
+            "protected_component_requires_approval",
+            payload["promotion_decision"]["summary"],
+        )
+        self.assertEqual(payload["change_manifests"], [])
+        self.assertEqual(payload["target_components"][0]["component_type"], "authority_policy")
+
     def test_cli_rejects_unknown_readiness_inputs(self) -> None:
         with self.assertRaises(ValueError):
             _parse_category_score(["mood=1"])
