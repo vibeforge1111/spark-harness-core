@@ -1446,6 +1446,36 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(manifest["verdict"], "draft")
 
+    def test_protected_components_cannot_be_marked_self_editable(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        protected_component = sample_component("verifier")
+        protected_component["editable_by_evolution"] = True
+
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("harness-component-v1", protected_component)
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.component(
+                component_id="component:benchmark",
+                component_type="benchmark",
+                owner_repo="spark-harness-core",
+                path="eval/benchmarks/genesis.json",
+                summary="Protected benchmark metadata must fail closed.",
+                tests=["python3 -m unittest discover -s tests"],
+                editable_by_evolution=True,
+            )
+
+        editable_adapter = kernel.component(
+            component_id="component:telegram-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/harnessCore.ts",
+            summary="Non-protected adapter can be edited by bounded self-evolution.",
+            tests=["npm test"],
+            editable_by_evolution=True,
+        )
+        self.assertTrue(editable_adapter["editable_by_evolution"])
+
     def test_cli_emits_valid_kernel_operating_records(self) -> None:
         commands = (
             ("resource-registry", "resource-registry-v1"),

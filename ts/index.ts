@@ -625,6 +625,8 @@ export interface HarnessComponentV1 {
   rollback_ref?: HarnessCoreArtifactRef;
 }
 
+export type HarnessComponentType = HarnessComponentV1['component_type'];
+
 export interface ChangeManifestV1 {
   schema_version: 'change-manifest-v1';
   change_id: string;
@@ -1621,7 +1623,7 @@ export function createTelegramLiveQaEvidencePacket(input: {
   };
 }
 
-const PROTECTED_HARNESS_COMPONENT_TYPES = new Set<HarnessComponentV1['component_type']>([
+export const PROTECTED_HARNESS_COMPONENT_TYPES: ReadonlySet<HarnessComponentType> = new Set<HarnessComponentType>([
   'verifier',
   'benchmark',
   'model_config',
@@ -1652,6 +1654,7 @@ export function createHarnessCoreChangeManifest(input: {
   verdict?: ChangeManifestV1['verdict'];
   human_approval_ref?: HarnessCoreEvidenceRef;
 }): ChangeManifestV1 {
+  assertHarnessCoreComponentEditablePolicy(input.target_component);
   if (PROTECTED_HARNESS_COMPONENT_TYPES.has(input.target_component.component_type) && !input.human_approval_ref) {
     throw new Error('protected Harness Core components require explicit human approval evidence');
   }
@@ -1692,6 +1695,8 @@ export function createHarnessCoreSelfEvolutionRun(input: {
   const verdict = input.verdict || 'not_ready';
   const manifests = input.change_manifests || [];
   const components = input.target_components || [];
+  components.forEach(assertHarnessCoreComponentEditablePolicy);
+  manifests.forEach((manifest) => assertHarnessCoreComponentEditablePolicy(manifest.target_component));
   const liveSurfaceRequired = input.live_surface_required ?? false;
   assertHarnessCoreSelfEvolutionPolicy({
     mode: input.mode,
@@ -1743,6 +1748,8 @@ export function createHarnessCoreChangeManifestRunner(input: {
 }): SelfEvolutionRunV1 {
   const manifests = input.change_manifests || [];
   const components = [...(input.target_components || [])];
+  components.forEach(assertHarnessCoreComponentEditablePolicy);
+  manifests.forEach((manifest) => assertHarnessCoreComponentEditablePolicy(manifest.target_component));
   const knownComponentIds = new Set(components.map((component) => component.component_id));
   for (const manifest of manifests) {
     const component = manifest.target_component;
@@ -1785,6 +1792,8 @@ export function evaluateHarnessCoreChangeManifestRunner(input: {
   live_surface_required: boolean;
 }): HarnessCoreChangeManifestRunnerDecision {
   const reasons: string[] = [];
+  input.target_components.forEach(assertHarnessCoreComponentEditablePolicy);
+  input.change_manifests.forEach((manifest) => assertHarnessCoreComponentEditablePolicy(manifest.target_component));
   if (input.mode === 'observe') {
     return runnerDecision('not_ready', ['observe_mode_records_evidence_only']);
   }
@@ -1836,6 +1845,16 @@ function runnerDecision(
     return { verdict, reasons, summary: `Change manifest runner selected rollback: ${reasonText}.` };
   }
   return { verdict, reasons, summary: `Change manifest runner selected ${verdict}: ${reasonText}.` };
+}
+
+export function isHarnessCoreProtectedComponentType(componentType: HarnessComponentType): boolean {
+  return PROTECTED_HARNESS_COMPONENT_TYPES.has(componentType);
+}
+
+export function assertHarnessCoreComponentEditablePolicy(component: HarnessComponentV1): void {
+  if (PROTECTED_HARNESS_COMPONENT_TYPES.has(component.component_type) && component.editable_by_evolution) {
+    throw new Error('protected Harness Core components cannot be marked editable_by_evolution');
+  }
 }
 
 function assertHarnessCoreSelfEvolutionPolicy(input: {

@@ -334,6 +334,34 @@ class TypeScriptContractTests(unittest.TestCase):
               dependencies: ['spark-harness-core'],
               tests: ['python3 -m unittest discover -s tests']
             };
+            const unsafeProtectedComponent = {
+              ...protectedComponent,
+              component_id: 'component:verifier',
+              component_type: 'verifier',
+              path: 'tests/test_kernel_contracts.py',
+              summary: 'Protected verifier must not be self-editable.',
+              editable_by_evolution: true
+            };
+            let blockedEditableProtectedComponentError = '';
+            try {
+              core.assertHarnessCoreComponentEditablePolicy(unsafeProtectedComponent);
+            } catch (error) {
+              blockedEditableProtectedComponentError = error instanceof Error ? error.message : String(error);
+            }
+            let blockedEditableProtectedRunError = '';
+            try {
+              core.createHarnessCoreSelfEvolutionRun({
+                id: 'unsafe-verifier-observe',
+                mode: 'observe',
+                surface: 'telegram',
+                experience_index: experience,
+                readiness_score: readiness,
+                commands: ['python3 -m unittest discover -s tests'],
+                target_components: [unsafeProtectedComponent]
+              });
+            } catch (error) {
+              blockedEditableProtectedRunError = error instanceof Error ? error.message : String(error);
+            }
             const protectedObserve = core.createHarnessCoreSelfEvolutionRun({
               id: 'authority-policy-observe',
               mode: 'observe',
@@ -452,6 +480,10 @@ class TypeScriptContractTests(unittest.TestCase):
               blockedPromotion,
               selfEvolution,
               runnerEvolution,
+              protectedComponentIsProtected: core.isHarnessCoreProtectedComponentType('authority_policy'),
+              adapterComponentIsProtected: core.isHarnessCoreProtectedComponentType('middleware'),
+              blockedEditableProtectedComponentError,
+              blockedEditableProtectedRunError,
               protectedObserve,
               protectedRunner,
               envelope,
@@ -503,6 +535,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["selfEvolution"]["promotion_decision"]["verdict"], "promote_private")
         self.assertEqual(payload["runnerEvolution"]["promotion_decision"]["verdict"], "promote_private")
         self.assertIn("accepted_change_manifests_ready", payload["runnerEvolution"]["promotion_decision"]["summary"])
+        self.assertTrue(payload["protectedComponentIsProtected"])
+        self.assertFalse(payload["adapterComponentIsProtected"])
+        self.assertIn("cannot be marked editable_by_evolution", payload["blockedEditableProtectedComponentError"])
+        self.assertIn("cannot be marked editable_by_evolution", payload["blockedEditableProtectedRunError"])
         self.assertEqual(payload["protectedObserve"]["promotion_decision"]["verdict"], "not_ready")
         self.assertEqual(payload["protectedRunner"]["promotion_decision"]["verdict"], "not_ready")
         self.assertIn("protected_component_requires_approval", payload["protectedRunner"]["promotion_decision"]["summary"])

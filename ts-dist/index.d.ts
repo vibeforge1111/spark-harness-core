@@ -430,6 +430,7 @@ export interface HarnessComponentV1 {
     tests: string[];
     rollback_ref?: HarnessCoreArtifactRef;
 }
+export type HarnessComponentType = HarnessComponentV1['component_type'];
 export interface ChangeManifestV1 {
     schema_version: 'change-manifest-v1';
     change_id: string;
@@ -624,6 +625,7 @@ export declare function createTelegramLiveQaEvidencePacket(input: {
     required_session_evidence?: Partial<TelegramLiveQaEvidencePacketV1['required_session_evidence']>;
     cases: TelegramLiveQaEvidencePacketV1['cases'];
 }): TelegramLiveQaEvidencePacketV1;
+export declare const PROTECTED_HARNESS_COMPONENT_TYPES: ReadonlySet<HarnessComponentType>;
 export declare function createHarnessCoreChangeManifest(input: {
     id: string;
     target_component: HarnessComponentV1;
@@ -676,3 +678,5 @@ export declare function evaluateHarnessCoreChangeManifestRunner(input: {
     requested_verdict?: SelfEvolutionRunV1['promotion_decision']['verdict'];
     live_surface_required: boolean;
 }): HarnessCoreChangeManifestRunnerDecision;
+export declare function isHarnessCoreProtectedComponentType(componentType: HarnessComponentType): boolean;
+export declare function assertHarnessCoreComponentEditablePolicy(component: HarnessComponentV1): void;
