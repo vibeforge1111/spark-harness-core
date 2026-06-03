@@ -312,6 +312,48 @@ class TypeScriptContractTests(unittest.TestCase):
               verdict: 'promote_private',
               summary: 'Accepted Telegram adapter change is ready for private promotion.'
             });
+            const runnerEvolution = core.createHarnessCoreChangeManifestRunner({
+              id: 'telegram-evidence-runner',
+              mode: 'promote',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['npm test'],
+              change_manifests: [acceptedManifest],
+              requested_verdict: 'promote_private'
+            });
+            const protectedComponent = {
+              schema_version: 'harness-component-v1',
+              component_id: 'component:authority-policy',
+              component_type: 'authority_policy',
+              owner_repo: 'spark-harness-core',
+              path: 'src/spark_harness_core/kernel.py',
+              summary: 'Protected authority policy.',
+              editable_by_evolution: false,
+              authority_scope: ['telegram'],
+              dependencies: ['spark-harness-core'],
+              tests: ['python3 -m unittest discover -s tests']
+            };
+            const protectedObserve = core.createHarnessCoreSelfEvolutionRun({
+              id: 'authority-policy-observe',
+              mode: 'observe',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['python3 -m unittest discover -s tests'],
+              target_components: [protectedComponent]
+            });
+            const protectedRunner = core.createHarnessCoreChangeManifestRunner({
+              id: 'authority-policy-runner',
+              mode: 'promote',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['python3 -m unittest discover -s tests'],
+              target_components: [protectedComponent],
+              change_manifests: [],
+              requested_verdict: 'promote_private'
+            });
             const envelope = core.createHarnessCoreActionEnvelopeVNext({
               surface: 'spawner',
               ownerSystem: 'spawner-ui',
@@ -409,6 +451,9 @@ class TypeScriptContractTests(unittest.TestCase):
               acceptedManifest,
               blockedPromotion,
               selfEvolution,
+              runnerEvolution,
+              protectedObserve,
+              protectedRunner,
               envelope,
               governorDecision,
               authorizedGovernorDecision,
@@ -456,6 +501,11 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertIn("accepted change manifests", payload["blockedPromotion"])
         self.assertEqual(payload["selfEvolution"]["schema_version"], "self-evolution-run-v1")
         self.assertEqual(payload["selfEvolution"]["promotion_decision"]["verdict"], "promote_private")
+        self.assertEqual(payload["runnerEvolution"]["promotion_decision"]["verdict"], "promote_private")
+        self.assertIn("accepted_change_manifests_ready", payload["runnerEvolution"]["promotion_decision"]["summary"])
+        self.assertEqual(payload["protectedObserve"]["promotion_decision"]["verdict"], "not_ready")
+        self.assertEqual(payload["protectedRunner"]["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("protected_component_requires_approval", payload["protectedRunner"]["promotion_decision"]["summary"])
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")

@@ -471,6 +471,11 @@ export interface SelfEvolutionRunV1 {
         readiness_score: ReadinessScoreV1;
     };
 }
+export interface HarnessCoreChangeManifestRunnerDecision {
+    verdict: SelfEvolutionRunV1['promotion_decision']['verdict'];
+    summary: string;
+    reasons: string[];
+}
 export type HarnessCoreActionMutationClass = 'none' | 'read_only' | 'writes_memory' | 'writes_files' | 'launches_mission' | 'controls_mission' | 'creates_schedule' | 'deletes_schedule' | 'creates_chip' | 'publishes' | 'external_network';
 export declare const HARNESS_CORE_RISK_ORDER: Readonly<Record<HarnessCoreRiskTier, number>>;
 export declare function safeHarnessCoreId(prefix: string, raw: string): string;
@@ -649,3 +654,25 @@ export declare function createHarnessCoreSelfEvolutionRun(input: {
     roles?: Partial<SelfEvolutionRunV1['roles']>;
     live_surface_required?: boolean;
 }): SelfEvolutionRunV1;
+export declare function createHarnessCoreChangeManifestRunner(input: {
+    id: string;
+    mode: SelfEvolutionRunV1['mode'];
+    surface: HarnessCoreSurface;
+    experience_index: ExperienceIndexV1;
+    readiness_score: ReadinessScoreV1;
+    commands: string[];
+    target_components?: HarnessComponentV1[];
+    change_manifests?: ChangeManifestV1[];
+    evaluation_packs?: EvaluationPackV1[];
+    requested_verdict?: SelfEvolutionRunV1['promotion_decision']['verdict'];
+    roles?: Partial<SelfEvolutionRunV1['roles']>;
+    live_surface_required?: boolean;
+}): SelfEvolutionRunV1;
+export declare function evaluateHarnessCoreChangeManifestRunner(input: {
+    mode: SelfEvolutionRunV1['mode'];
+    readiness_score: ReadinessScoreV1;
+    target_components: HarnessComponentV1[];
+    change_manifests: ChangeManifestV1[];
+    requested_verdict?: SelfEvolutionRunV1['promotion_decision']['verdict'];
+    live_surface_required: boolean;
+}): HarnessCoreChangeManifestRunnerDecision;

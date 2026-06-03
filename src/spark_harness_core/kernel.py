@@ -79,6 +79,7 @@ READINESS_CATEGORIES = (
 )
 
 PROTECTED_EVOLUTION_COMPONENTS = frozenset({"verifier", "benchmark", "model_config", "authority_policy"})
+MUTATING_EVOLUTION_MODES = frozenset({"sandbox", "promote", "rollback"})
 PROMOTION_VERDICTS = frozenset({"promote_private", "promote_release_candidate"})
 READINESS_STATUS_RANK = {
     "blocked": 0,
@@ -1029,6 +1030,54 @@ class HarnessKernel:
         }
         return validate_instance("self-evolution-run-v1", record)
 
+    def change_manifest_runner(
+        self,
+        *,
+        mode: str,
+        experience_index: dict[str, Any],
+        readiness_score: dict[str, Any],
+        commands: list[str],
+        target_components: list[dict[str, Any]] | None = None,
+        change_manifests: list[dict[str, Any]] | None = None,
+        evaluation_packs: list[dict[str, Any]] | None = None,
+        requested_verdict: str | None = None,
+        roles: dict[str, str] | None = None,
+        live_surface_required: bool = False,
+    ) -> dict[str, Any]:
+        manifests = list(change_manifests or [])
+        components = list(target_components or [])
+        known_component_ids = {str(component.get("component_id") or "") for component in components}
+        for manifest in manifests:
+            validate_instance("change-manifest-v1", manifest)
+            component = manifest.get("target_component")
+            if isinstance(component, dict):
+                component_id = str(component.get("component_id") or "")
+                if component_id and component_id not in known_component_ids:
+                    components.append(component)
+                    known_component_ids.add(component_id)
+
+        decision = self._change_manifest_runner_decision(
+            mode=mode,
+            readiness_score=readiness_score,
+            target_components=components,
+            change_manifests=manifests,
+            live_surface_required=live_surface_required,
+            requested_verdict=requested_verdict,
+        )
+        return self.self_evolution_run(
+            mode=mode,
+            experience_index=experience_index,
+            readiness_score=readiness_score,
+            commands=commands,
+            target_components=components,
+            change_manifests=manifests,
+            evaluation_packs=evaluation_packs,
+            verdict=decision["verdict"],
+            summary=decision["summary"],
+            roles=roles,
+            live_surface_required=live_surface_required,
+        )
+
     def _governor_outcome(self, envelope: dict[str, Any], authorizations: list[dict[str, Any]]) -> str:
         state = str(envelope["action_authority"]["state"])
         selected_move = str(envelope["selected_move"])
@@ -1140,18 +1189,107 @@ class HarnessKernel:
             if not any(manifest.get("verdict") == "rolled_back" for manifest in change_manifests):
                 raise ValueError("rollback verdict requires at least one rolled_back change manifest.")
 
+        if self._self_evolution_requires_protected_approval(mode=mode, verdict=verdict):
+            missing_approval = self._protected_components_missing_approval(
+                target_components=target_components,
+                change_manifests=change_manifests,
+            )
+            if missing_approval:
+                raise ValueError(
+                    "protected self-evolution components require approval evidence: "
+                    f"{', '.join(missing_approval)}"
+                )
+
+    def _change_manifest_runner_decision(
+        self,
+        *,
+        mode: str,
+        readiness_score: dict[str, Any],
+        target_components: list[dict[str, Any]],
+        change_manifests: list[dict[str, Any]],
+        live_surface_required: bool,
+        requested_verdict: str | None,
+    ) -> dict[str, str | list[str]]:
+        reasons: list[str] = []
+        if mode == "observe":
+            reasons.append("observe_mode_records_evidence_only")
+            return self._runner_decision("not_ready", reasons)
+        if requested_verdict == "rollback" or mode == "rollback":
+            if mode != "rollback":
+                reasons.append("rollback_requires_rollback_mode")
+            if not any(manifest.get("verdict") == "rolled_back" for manifest in change_manifests):
+                reasons.append("rollback_requires_rolled_back_manifest")
+            return self._runner_decision("rollback" if not reasons else "not_ready", reasons or ["rollback_manifest_present"])
+        if mode != "promote":
+            reasons.append(f"{mode}_mode_cannot_promote")
+        if not change_manifests:
+            reasons.append("no_change_manifests")
+        non_accepted = [
+            str(manifest.get("change_id") or "change:unknown")
+            for manifest in change_manifests
+            if manifest.get("verdict") != "accepted"
+        ]
+        if non_accepted:
+            reasons.append(f"non_accepted_change_manifests:{','.join(non_accepted)}")
+        if live_surface_required or any(bool(manifest.get("live_proof_required")) for manifest in change_manifests):
+            reasons.append("live_proof_still_required")
+        missing_approval = self._protected_components_missing_approval(
+            target_components=target_components,
+            change_manifests=change_manifests,
+        )
+        if missing_approval:
+            reasons.append(f"protected_component_requires_approval:{','.join(missing_approval)}")
+
+        requested = requested_verdict if requested_verdict in PROMOTION_VERDICTS else None
+        readiness_status = str(readiness_score.get("overall", {}).get("status") or "blocked")
+        if requested is None:
+            requested = (
+                "promote_release_candidate"
+                if READINESS_STATUS_RANK.get(readiness_status, 0) >= READINESS_STATUS_RANK["release_candidate"]
+                else "promote_private"
+            )
+        required_status = "private_ready" if requested == "promote_private" else "release_candidate"
+        if READINESS_STATUS_RANK.get(readiness_status, 0) < READINESS_STATUS_RANK[required_status]:
+            reasons.append(f"readiness_below_{required_status}:{readiness_status}")
+        if reasons:
+            return self._runner_decision("not_ready", reasons)
+        return self._runner_decision(requested, ["accepted_change_manifests_ready"])
+
+    @staticmethod
+    def _runner_decision(verdict: str, reasons: list[str]) -> dict[str, str | list[str]]:
+        reason_text = ", ".join(reasons) if reasons else "no_blockers"
+        if verdict == "not_ready":
+            summary = f"Change manifest runner is not ready to promote: {reason_text}."
+        elif verdict == "rollback":
+            summary = f"Change manifest runner selected rollback: {reason_text}."
+        else:
+            summary = f"Change manifest runner selected {verdict}: {reason_text}."
+        return {"verdict": verdict, "summary": summary, "reasons": reasons}
+
+    @staticmethod
+    def _self_evolution_requires_protected_approval(*, mode: str, verdict: str) -> bool:
+        return verdict != "not_ready" and (
+            mode in MUTATING_EVOLUTION_MODES or verdict in PROMOTION_VERDICTS or verdict == "rollback"
+        )
+
+    @staticmethod
+    def _protected_components_missing_approval(
+        *,
+        target_components: list[dict[str, Any]],
+        change_manifests: list[dict[str, Any]],
+    ) -> list[str]:
         approved_component_ids = {
             str(manifest.get("target_component", {}).get("component_id"))
             for manifest in change_manifests
             if manifest.get("human_approval_ref") is not None
         }
+        missing: list[str] = []
         for component in target_components:
             component_type = str(component.get("component_type") or "")
             component_id = str(component.get("component_id") or "")
             if component_type in PROTECTED_EVOLUTION_COMPONENTS and component_id not in approved_component_ids:
-                raise ValueError(
-                    f"protected self-evolution component {component_id or component_type} requires approval evidence."
-                )
+                missing.append(component_id or component_type)
+        return missing
 
     @staticmethod
     def _default_authority_state(selected_move: str, actions: list[dict[str, Any]]) -> str:

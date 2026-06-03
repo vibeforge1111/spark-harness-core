@@ -1066,6 +1066,157 @@ class KernelContractTests(unittest.TestCase):
                 live_surface_required=True,
             )
 
+    def test_change_manifest_runner_promotes_ready_accepted_batch(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.9
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index()
+        component = kernel.component(
+            component_id="component:telegram-evidence-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/harnessCore.ts",
+            summary="Telegram evidence adapter.",
+            tests=["npm test"],
+        )
+        manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="Telegram needs a canonical evidence adapter.",
+            edit_summary="Route through Harness Core records.",
+            predicted_fixes=["High-agency Telegram actions use Harness Core authority."],
+            predicted_regression_risks=["Under-specified actions may now be rejected."],
+            required_tests=["npm test"],
+            rollback_plan="Revert the adapter change.",
+            observed_delta=[kernel.metric(name="route_matrix_pass", value=True)],
+            verdict="accepted",
+        )
+
+        run = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["npm test"],
+            change_manifests=[manifest],
+            requested_verdict="promote_private",
+        )
+
+        self.assertEqual(run["promotion_decision"]["verdict"], "promote_private")
+        self.assertIn("accepted_change_manifests_ready", run["promotion_decision"]["summary"])
+        self.assertEqual(run["target_components"][0]["component_id"], component["component_id"])
+        validate_instance("self-evolution-run-v1", run)
+
+    def test_change_manifest_runner_returns_not_ready_for_live_or_protected_batches(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.9
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index()
+        component = kernel.component(
+            component_id="component:telegram-live-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/index.ts",
+            summary="Telegram live adapter.",
+            tests=["npm test"],
+        )
+        live_manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="Live proof is still required.",
+            edit_summary="Prepare live proof wiring.",
+            predicted_fixes=["Live evidence gets attached."],
+            predicted_regression_risks=["Live route drift may appear."],
+            required_tests=["npm test"],
+            rollback_plan="Revert live proof wiring.",
+            live_proof_required=True,
+            verdict="accepted",
+        )
+        live_run = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["npm test"],
+            change_manifests=[live_manifest],
+            requested_verdict="promote_private",
+            live_surface_required=True,
+        )
+        self.assertEqual(live_run["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("live_proof_still_required", live_run["promotion_decision"]["summary"])
+
+        protected_component = kernel.component(
+            component_id="component:authority-policy",
+            component_type="authority_policy",
+            owner_repo="spark-harness-core",
+            path="src/spark_harness_core/kernel.py",
+            summary="Protected authority policy.",
+            tests=["python3 -m unittest discover -s tests"],
+        )
+        observe_run = kernel.self_evolution_run(
+            mode="observe",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["python3 -m unittest discover -s tests"],
+            target_components=[protected_component],
+        )
+        self.assertEqual(observe_run["promotion_decision"]["verdict"], "not_ready")
+
+        protected_runner = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["python3 -m unittest discover -s tests"],
+            target_components=[protected_component],
+            change_manifests=[],
+            requested_verdict="promote_private",
+        )
+        self.assertEqual(protected_runner["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("protected_component_requires_approval", protected_runner["promotion_decision"]["summary"])
+
+        with self.assertRaises(ValueError):
+            kernel.self_evolution_run(
+                mode="promote",
+                experience_index=experience,
+                readiness_score=readiness,
+                commands=["python3 -m unittest discover -s tests"],
+                target_components=[protected_component],
+                change_manifests=[],
+                verdict="promote_private",
+            )
+
     def test_kernel_builds_evaluation_pack_and_harness_run_records(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         prompt = artifact_ref("prompt", "eval/prompts/telegram-meta-build.txt", "Redacted Telegram prompt.")
@@ -1305,6 +1456,7 @@ class KernelContractTests(unittest.TestCase):
             ("governor-decision", "governor-decision-v1"),
             ("telegram-live-qa-packet --include-risky", "telegram-live-qa-evidence-packet-v1"),
             ("change-manifest", "change-manifest-v1"),
+            ("change-manifest-runner", "self-evolution-run-v1"),
             (
                 "readiness-score --category execution=1 --category tools=1 --category context=1 "
                 "--category lifecycle=1 --category observability=1 --category verification=1 "

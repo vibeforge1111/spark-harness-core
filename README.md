@@ -11,7 +11,7 @@ model proposes -> Governor decides -> lifecycle executes -> ledger records -> ev
 ## What Lives Here
 
 - JSON Schemas for the authority envelope, Governor decision, capability registry, tool lifecycle, trace ledger, experience index, resources, surface specs, readiness scores, autonomy policy, eval packs, and self-evolution runs.
-- A small Python kernel that can create and validate envelopes, authorization decisions, Governor decisions, tool ledgers, resource registries, experience indexes, readiness scores, change manifests, and self-evolution run records.
+- A small Python kernel that can create and validate envelopes, authorization decisions, Governor decisions, tool ledgers, resource registries, experience indexes, readiness scores, change manifests, change-manifest runner decisions, and self-evolution run records.
 - A private Node/TypeScript package face (`@spark/harness-core`) that exports the canonical VNext contract types and helper constructors for Spark adapters.
 - Tests proving the contracts load, validate, and reject important authority failures.
 - Documentation mapping the research and pasted notes into Spark's implementation plan.
@@ -38,7 +38,8 @@ The kernel can now emit and validate the records Spark needs before promoting a 
 - `governor-decision-v1`: binds one envelope, authorization set, optional ledgers, execution boundary, and reply contract into the canonical route outcome every Spark surface must consume.
 - `experience-index-v1`: points to traces, screenshots, tool ledgers, scorecards, diffs, and live proof without flooding the live model context.
 - `readiness-score-v1`: scores execution, tools, context, lifecycle, observability, verification, and governance, then derives blocked, private-ready, release-candidate, or public-ready status from evidence and gates.
-- `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence.
+- `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence for mutation.
+- `change-manifest-runner`: evaluates accepted manifests, readiness, live-proof requirements, rollback state, and protected-component approval before emitting a `self-evolution-run-v1` promotion decision. It records `not_ready` instead of mutating when evidence is missing.
 - `self-evolution-run-v1`: ties experience, target components, manifests, eval packs, commands, readiness, and promotion verdict into one auditable run.
 - `spark.telegram_live_qa_evidence_packet.v1`: records the 100-prompt Telegram live QA container with observed replies, side-effect checks, ledger/trace/screenshot refs, session evidence, verdicts, and release claim boundary.
 
@@ -54,5 +55,6 @@ PYTHONPATH=src python3 -m spark_harness_core.cli governor-decision
 PYTHONPATH=src python3 -m spark_harness_core.cli experience-index
 PYTHONPATH=src python3 -m spark_harness_core.cli telegram-live-qa-packet --include-risky
 PYTHONPATH=src python3 -m spark_harness_core.cli readiness-score --category execution=1 --category tools=1 --category context=1 --category lifecycle=1 --category observability=1 --category verification=1 --category governance=1 --gate zero_high_agency_legacy_local_gates=true
+PYTHONPATH=src python3 -m spark_harness_core.cli change-manifest-runner
 PYTHONPATH=src python3 -m spark_harness_core.cli self-evolution-run
 ```

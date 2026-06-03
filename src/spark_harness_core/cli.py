@@ -198,6 +198,30 @@ def main(argv: list[str] | None = None) -> int:
         default=["python3 -m unittest discover -s tests"],
     )
 
+    runner = subcommands.add_parser("change-manifest-runner", help="evaluate manifests and emit a self-evolution run")
+    runner.add_argument("--surface", default="test_harness")
+    runner.add_argument("--mode", default="promote")
+    runner.add_argument("--requested-verdict", default="promote_private")
+    runner.add_argument("--manifest-verdict", default="accepted")
+    runner.add_argument("--component-id", default="component:harness-core-adapter")
+    runner.add_argument("--component-type", default="middleware")
+    runner.add_argument("--owner-repo", default="spark-harness-core")
+    runner.add_argument("--path", default="src/spark_harness_core/kernel.py")
+    runner.add_argument("--component-summary", default="Harness Core component under self-evolution evaluation.")
+    runner.add_argument("--failure-summary", default="Evidence shows a harness behavior gap.")
+    runner.add_argument("--root-cause", default="The surface needs a canonical Harness Core contract.")
+    runner.add_argument("--edit-summary", default="Add a bounded Harness Core contract and tests.")
+    runner.add_argument("--predicted-fix", action="append", default=["Surface emits schema-valid Harness Core records."])
+    runner.add_argument(
+        "--regression-risk",
+        action="append",
+        default=["A stricter contract could reject under-specified surface adapters."],
+    )
+    runner.add_argument("--test-command", action="append", default=["python3 -m unittest discover -s tests"])
+    runner.add_argument("--rollback-plan", default="Revert this change manifest and the linked implementation patch.")
+    runner.add_argument("--live-proof-required", action="store_true")
+    runner.add_argument("--approval-summary", default=None)
+
     manifest = subcommands.add_parser("change-manifest", help="emit a guarded change manifest")
     manifest.add_argument("--surface", default="test_harness")
     manifest.add_argument("--component-id", default="component:harness-core-adapter")
@@ -481,6 +505,78 @@ def main(argv: list[str] | None = None) -> int:
                 readiness_score=readiness_score,
                 commands=args.test_commands,
                 summary=args.summary,
+            )
+        )
+        return 0
+
+    if args.command == "change-manifest-runner":
+        kernel = HarnessKernel(surface=args.surface)
+        component = kernel.component(
+            component_id=args.component_id,
+            component_type=args.component_type,
+            owner_repo=args.owner_repo,
+            path=args.path,
+            summary=args.component_summary,
+            tests=args.test_command,
+        )
+        approval = (
+            evidence_ref("human_confirmation", "spark-harness-core.cli", args.approval_summary)
+            if args.approval_summary
+            else None
+        )
+        evidence = [evidence_ref("test_result", "spark-harness-core.cli", args.failure_summary, confidence=0.8)]
+        manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis=args.root_cause,
+            edit_summary=args.edit_summary,
+            predicted_fixes=args.predicted_fix,
+            predicted_regression_risks=args.regression_risk,
+            required_tests=args.test_command,
+            rollback_plan=args.rollback_plan,
+            live_proof_required=args.live_proof_required,
+            observed_delta=[kernel.metric(name="manifest_runner_cli", value=True)],
+            verdict=args.manifest_verdict,
+            human_approval_ref=approval,
+        )
+        index = kernel.experience_index(
+            entries=[
+                kernel.experience_entry(
+                    entry_type="test_result",
+                    summary="Change manifest runner CLI evidence.",
+                    artifact=artifact_ref(
+                        "experience",
+                        "experience/change-manifest-runner.json",
+                        "Change manifest runner CLI output.",
+                    ),
+                    tags=["self_evolution", "change_manifest_runner"],
+                    linked_change_id=manifest["change_id"],
+                )
+            ]
+        )
+        readiness_score = kernel.readiness_score(
+            target_kind="repo",
+            target_id=f"repo:{args.owner_repo}",
+            owner_repo=args.owner_repo,
+            category_scores={name: 0.9 for name in READINESS_CATEGORIES},
+            category_evidence={name: evidence for name in READINESS_CATEGORIES},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        _print_json(
+            kernel.change_manifest_runner(
+                mode=args.mode,
+                experience_index=index,
+                readiness_score=readiness_score,
+                commands=args.test_command,
+                change_manifests=[manifest],
+                requested_verdict=args.requested_verdict,
+                live_surface_required=args.live_proof_required,
             )
         )
         return 0

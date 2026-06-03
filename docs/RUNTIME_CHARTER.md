@@ -141,6 +141,12 @@ and `governance_rulesets_proven` are true.
 
 Self-evolution may improve prompts, tools, middleware, skills, specs, adapters, policies, and tests only through a `ChangeManifestV1`.
 
+The change-manifest runner is the promotion boundary for self-evolution. It
+evaluates manifest verdicts, readiness status, live-proof requirements,
+rollback state, and protected-component approval before emitting a
+`self-evolution-run-v1` decision. Missing evidence produces `not_ready`, not a
+mutation.
+
 Self-evolution cannot mutate verifier logic, benchmark cases, model config, or authority policy without explicit human approval.
 
 Every improvement must declare:
