@@ -392,6 +392,21 @@ class TypeScriptContractTests(unittest.TestCase):
               requestId: 'dispatch-vnext-test',
               target: 'mission-vnext-test'
             });
+            const machineEnvelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'spawner',
+              ownerSystem: 'spawner-ui',
+              toolName: 'spawner.dispatch',
+              mutationClass: 'launches_mission',
+              source: 'spawner-scheduler',
+              reason: 'Machine scheduler proposed a dispatch without a fresh user turn.',
+              requestId: 'dispatch-machine-vnext-test',
+              actorKind: 'system',
+              target: 'mission-vnext-test'
+            });
+            const machineGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: machineEnvelope,
+              tool_name: 'spawner.dispatch'
+            });
             const action = envelope.proposed_actions[0];
             const authorization = {
               schema_version: 'authorization-decision-v1',
@@ -442,6 +457,21 @@ class TypeScriptContractTests(unittest.TestCase):
             copiedGovernorDecision.tool_ledgers[0].authorization.action_id = 'action:copied-stale-ledger';
             const copiedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
               governor_decision: copiedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            const unboundFreshEnvelope = JSON.parse(JSON.stringify(envelope));
+            unboundFreshEnvelope.freshness.fresh_user_intent_ref = {
+              ...unboundFreshEnvelope.freshness.fresh_user_intent_ref,
+              id: 'evidence:forged_fresh_intent'
+            };
+            const unboundFreshGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: unboundFreshEnvelope,
+              tool_name: 'spawner.dispatch'
+            });
+            const unboundFreshVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: unboundFreshGovernorDecision,
               tool_name: 'spawner.dispatch',
               owner_system: 'spawner-ui',
               action_type: 'launch_mission'
@@ -515,11 +545,15 @@ class TypeScriptContractTests(unittest.TestCase):
               protectedObserve,
               protectedRunner,
               envelope,
+              machineEnvelope,
+              machineGovernorDecision,
               governorDecision,
               authorizedGovernorDecision,
               finalizedAuthorizedLedger,
               governorConsumerVerification,
               copiedGovernorConsumerVerification,
+              unboundFreshGovernorDecision,
+              unboundFreshVerification,
               copiedLedgerError,
               interruptedGovernorDecision,
               blockedFinalizeError,
@@ -576,11 +610,18 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")
+        self.assertEqual(payload["envelope"]["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
         self.assertEqual(
             payload["envelope"]["proposed_actions"][0]["capability_id"],
             "capability:spawner-ui:spawner.dispatch",
         )
         self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "launch_mission")
+        self.assertEqual(payload["machineEnvelope"]["selected_move"], "prepare_action")
+        self.assertEqual(payload["machineEnvelope"]["action_authority"]["state"], "prepare_allowed")
+        self.assertFalse(payload["machineEnvelope"]["freshness"]["fresh_user_intent_present"])
+        self.assertIsNone(payload["machineEnvelope"]["freshness"]["fresh_user_intent_ref"])
+        self.assertEqual(payload["machineGovernorDecision"]["authorizations"][0]["verdict"], "deny")
+        self.assertIn("envelope_not_executable", payload["machineGovernorDecision"]["authorizations"][0]["reasons"])
         self.assertEqual(payload["governorDecision"]["schema_version"], "governor-decision-v1")
         self.assertEqual(payload["governorDecision"]["outcome"], "degrade")
         self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
@@ -607,6 +648,9 @@ class TypeScriptContractTests(unittest.TestCase):
             "governor_missing_matching_tool_ledger",
             payload["copiedGovernorConsumerVerification"]["reason_codes"],
         )
+        self.assertEqual(payload["unboundFreshGovernorDecision"]["outcome"], "deny")
+        self.assertEqual(payload["unboundFreshGovernorDecision"]["authorizations"][0]["verdict"], "deny")
+        self.assertIn("fresh_user_intent_evidence_unbound", payload["unboundFreshVerification"]["reason_codes"])
         self.assertIn("authorization binding mismatch", payload["copiedLedgerError"])
         self.assertEqual(payload["interruptedGovernorDecision"]["outcome"], "interrupt")
         self.assertEqual(payload["interruptedGovernorDecision"]["authorizations"][0]["verdict"], "interrupt")

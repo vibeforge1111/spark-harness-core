@@ -55,6 +55,7 @@ export interface TurnIntentEnvelopeVNext {
     intent_summary: string;
     freshness: {
         fresh_user_intent_present: boolean;
+        fresh_user_intent_ref: HarnessCoreEvidenceRef | null;
         stale_state_used_as_authority: false;
         memory_used_as_instruction: false;
         pending_state_used_as_authority: false;

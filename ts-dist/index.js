@@ -41,6 +41,11 @@ const HARNESS_CORE_EXECUTED_TOOL_STATUSES = new Set([
     'partial',
     'rolled_back'
 ]);
+const HARNESS_CORE_FRESH_USER_INTENT_REQUIRED_MOVES = new Set([
+    'read_current_state',
+    'confirm_action',
+    'execute_action'
+]);
 function safeHarnessCoreId(prefix, raw) {
     const normalized = raw.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
     const suffix = normalized || Math.random().toString(16).slice(2, 14);
@@ -74,6 +79,32 @@ function createHarnessCoreEvidenceRef(input) {
         confidence: input.confidence,
         trace_refs: input.trace_refs || []
     };
+}
+function freshUserIntentAuthorityReasonCodes(envelope) {
+    if (!HARNESS_CORE_FRESH_USER_INTENT_REQUIRED_MOVES.has(envelope.selected_move))
+        return [];
+    const reasons = [];
+    if (envelope.actor.kind !== 'human')
+        reasons.push('fresh_user_intent_actor_not_human');
+    if (!envelope.freshness.fresh_user_intent_present)
+        reasons.push('fresh_user_intent_missing');
+    if (envelope.freshness.stale_state_used_as_authority)
+        reasons.push('stale_state_used_as_authority');
+    if (envelope.freshness.memory_used_as_instruction)
+        reasons.push('memory_used_as_instruction');
+    if (envelope.freshness.pending_state_used_as_authority)
+        reasons.push('pending_state_used_as_authority');
+    const freshRef = envelope.freshness.fresh_user_intent_ref;
+    if (!freshRef) {
+        reasons.push('fresh_user_intent_ref_missing');
+        return [...new Set(reasons)];
+    }
+    if (freshRef.kind !== 'fresh_user_intent')
+        reasons.push('fresh_user_intent_ref_not_fresh_user_intent');
+    const bound = envelope.evidence.some((item) => item.id === freshRef.id && item.kind === 'fresh_user_intent' && item.source === freshRef.source);
+    if (!bound)
+        reasons.push('fresh_user_intent_evidence_unbound');
+    return [...new Set(reasons)];
 }
 function actionTypeForHarnessMutation(mutationClass, publishes = false) {
     if (publishes || mutationClass === 'publishes')
@@ -157,18 +188,31 @@ function createHarnessCoreActionEnvelopeVNext(input) {
         }),
         requires_confirmation: requiresConfirmation
     };
-    const selectedMove = requiresConfirmation ? 'confirm_action' : actionType === 'read' ? 'read_current_state' : 'execute_action';
-    const authorityState = selectedMove === 'confirm_action' ? 'confirmation_required' : selectedMove === 'read_current_state' ? 'read_only' : 'executable';
+    const selectedMove = actorKind !== 'human'
+        ? 'prepare_action'
+        : requiresConfirmation
+            ? 'confirm_action'
+            : actionType === 'read'
+                ? 'read_current_state'
+                : 'execute_action';
+    const authorityState = selectedMove === 'prepare_action'
+        ? 'prepare_allowed'
+        : selectedMove === 'confirm_action'
+            ? 'confirmation_required'
+            : selectedMove === 'read_current_state'
+                ? 'read_only'
+                : 'executable';
     const evidenceKind = actorKind === 'human' ? 'fresh_user_intent' : 'surface_signal';
+    const authorityEvidence = createHarnessCoreEvidenceRef({
+        id: `${turnId}:fresh-authority`,
+        kind: evidenceKind,
+        source: input.source,
+        summary: input.reason,
+        confidence,
+        trace_refs: [trace]
+    });
     const evidence = [
-        createHarnessCoreEvidenceRef({
-            id: `${turnId}:fresh-authority`,
-            kind: evidenceKind,
-            source: input.source,
-            summary: input.reason,
-            confidence,
-            trace_refs: [trace]
-        }),
+        authorityEvidence,
         createHarnessCoreEvidenceRef({
             id: `${turnId}:surface-action`,
             kind: 'surface_signal',
@@ -193,6 +237,7 @@ function createHarnessCoreActionEnvelopeVNext(input) {
         intent_summary: input.reason,
         freshness: {
             fresh_user_intent_present: actorKind === 'human',
+            fresh_user_intent_ref: actorKind === 'human' ? authorityEvidence : null,
             stale_state_used_as_authority: false,
             memory_used_as_instruction: false,
             pending_state_used_as_authority: false
@@ -203,9 +248,11 @@ function createHarnessCoreActionEnvelopeVNext(input) {
             risk_tier: riskTier,
             confidence,
             requires_human_confirmation: requiresConfirmation,
-            reason: requiresConfirmation
-                ? 'Harness Core requires confirmation before this high-risk action can execute.'
-                : 'Fresh surface evidence authorizes this action through Harness Core.'
+            reason: actorKind !== 'human'
+                ? 'Machine-origin evidence may prepare an action but cannot execute without source-bound fresh user intent.'
+                : requiresConfirmation
+                    ? 'Harness Core requires confirmation before this high-risk action can execute.'
+                    : 'Fresh surface evidence authorizes this action through Harness Core.'
         },
         proposed_actions: [action],
         blocked_routes: [],
@@ -222,6 +269,8 @@ function governorOutcomeFor(input) {
     const { envelope, authorizations } = input;
     const state = envelope.action_authority.state;
     const verdicts = new Set(authorizations.map((authorization) => authorization.verdict));
+    if (freshUserIntentAuthorityReasonCodes(envelope).length > 0)
+        return 'deny';
     if (state === 'executable' && verdicts.has('allow')) {
         return hasMatchingExecutionLedger({
             envelope,
@@ -323,6 +372,10 @@ function governorReasonsFor(input) {
     if (input.envelope.action_authority.requires_human_confirmation) {
         reasons.push('human_confirmation_required_by_envelope');
     }
+    for (const reason of freshUserIntentAuthorityReasonCodes(input.envelope)) {
+        if (!reasons.includes(reason))
+            reasons.push(reason);
+    }
     return reasons;
 }
 function createHarnessCoreGovernorDecision(input) {
@@ -406,6 +459,7 @@ function verifyHarnessCoreGovernorExecutionAuthority(input) {
     if (governorDecision.outcome === 'execute' && !governorDecision.execution_boundary.action_authorized) {
         reasonCodes.push('governor_action_not_authorized');
     }
+    reasonCodes.push(...freshUserIntentAuthorityReasonCodes(governorDecision.envelope));
     const matchingAuthorization = governorDecision.authorizations.find((authorization) => {
         if (authorization.verdict !== 'allow')
             return false;
@@ -504,7 +558,16 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         summary: `Governor authorization for ${input.tool_name}.`,
         redaction_class: 'metadata_only'
     });
-    const verdict = action.requires_confirmation ? 'interrupt' : 'allow';
+    const freshnessReasons = freshUserIntentAuthorityReasonCodes(input.envelope);
+    const authorityAllowsAction = input.envelope.action_authority.state === 'executable' ||
+        (input.envelope.action_authority.state === 'read_only' && action.action_type === 'read') ||
+        input.envelope.action_authority.state === 'confirmation_required';
+    const authorityReasons = authorityAllowsAction ? [] : ['envelope_not_executable'];
+    const verdict = freshnessReasons.length > 0 || authorityReasons.length > 0
+        ? 'deny'
+        : action.requires_confirmation
+            ? 'interrupt'
+            : 'allow';
     const authorization = {
         schema_version: 'authorization-decision-v1',
         decision_id: safeHarnessCoreId('decision', `${input.envelope.turn_id}:${action.action_id}`),
@@ -516,19 +579,29 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         risk_tier: action.risk_tier,
         reasons: input.reasons && input.reasons.length > 0
             ? input.reasons
-            : action.requires_confirmation
-                ? ['harness_core_authorized', 'explicit_human_confirmation_required']
-                : ['harness_core_authorized'],
+            : freshnessReasons.length > 0
+                ? freshnessReasons
+                : authorityReasons.length > 0
+                    ? authorityReasons
+                    : action.requires_confirmation
+                        ? ['harness_core_authorized', 'explicit_human_confirmation_required']
+                        : ['harness_core_authorized'],
         evidence: input.envelope.evidence,
         approval: {
-            required: action.requires_confirmation,
-            status: action.requires_confirmation ? 'requested' : 'not_required'
+            required: freshnessReasons.length === 0 && authorityReasons.length === 0 && action.requires_confirmation,
+            status: freshnessReasons.length > 0 || authorityReasons.length > 0
+                ? 'not_required'
+                : action.requires_confirmation
+                    ? 'requested'
+                    : 'not_required'
         },
         restrictions: {
-            network_allowed: action.action_type === 'external_api_call' || action.action_type === 'browser_action' || action.action_type === 'computer_action',
-            write_allowed: !['read'].includes(action.action_type),
-            publish_allowed: action.action_type === 'publish',
-            ...(input.restrictions || {})
+            network_allowed: freshnessReasons.length === 0 &&
+                authorityReasons.length === 0 &&
+                (action.action_type === 'external_api_call' || action.action_type === 'browser_action' || action.action_type === 'computer_action'),
+            write_allowed: freshnessReasons.length === 0 && authorityReasons.length === 0 && !['read'].includes(action.action_type),
+            publish_allowed: freshnessReasons.length === 0 && authorityReasons.length === 0 && action.action_type === 'publish',
+            ...(freshnessReasons.length === 0 && authorityReasons.length === 0 ? input.restrictions || {} : {})
         },
         trace
     };
@@ -543,7 +616,12 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         lifecycle: [
             { stage: 'propose', at: input.envelope.created_at, verdict: 'passed', summary: 'Harness Core proposed the action.' },
             { stage: 'validate', at: now, verdict: 'passed', summary: 'Harness Core validated the authority record.' },
-            { stage: 'authorize', at: now, verdict: action.requires_confirmation ? 'pending' : 'passed', summary: 'Governor authorization recorded before execution.' },
+            {
+                stage: 'authorize',
+                at: now,
+                verdict: verdict === 'allow' ? 'passed' : verdict === 'interrupt' ? 'pending' : 'failed',
+                summary: 'Governor authorization recorded before execution.'
+            },
             { stage: 'execute', at: now, verdict: 'pending', summary: 'Execution has not started yet.' }
         ],
         authorization,

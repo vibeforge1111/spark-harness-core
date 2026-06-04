@@ -156,6 +156,7 @@ class KernelContractTests(unittest.TestCase):
             confidence=0.93,
         )
         self.assertEqual(envelope["selected_move"], "execute_action")
+        self.assertEqual(envelope["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
 
         invalid = clone(envelope)
         invalid["action_authority"]["state"] = "chat_only"
@@ -724,6 +725,74 @@ class KernelContractTests(unittest.TestCase):
         assert result.tool_call_ledger is not None
         self.assertEqual(result.authorization_decision["verdict"], "allow")
         self.assertEqual(result.tool_call_ledger["authorization"]["decision_id"], result.authorization_decision["decision_id"])
+
+    def test_vnext_freshness_requires_source_bound_human_evidence(self) -> None:
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-source-bound-freshness",
+            source_kind="telegram_runtime_profile_fact_observation",
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            intent_summary="User explicitly shared a profile fact to remember.",
+            raw_turn_summary="Telegram memory write request summarized.",
+        )
+
+        self.assertEqual(envelope["actor"]["kind"], "human")
+        self.assertEqual(envelope["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
+
+        system_envelope = clone(envelope)
+        system_envelope["actor"]["kind"] = "system"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", system_envelope)
+
+        evidence_only_envelope = clone(envelope)
+        evidence_only_envelope["freshness"]["fresh_user_intent_ref"] = evidence_only_envelope["evidence"][1]
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", evidence_only_envelope)
+
+        stale_envelope = clone(envelope)
+        stale_envelope["freshness"]["stale_state_used_as_authority"] = True
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", stale_envelope)
+
+        unbound_envelope = clone(envelope)
+        unbound_envelope["freshness"]["fresh_user_intent_ref"] = clone(
+            unbound_envelope["freshness"]["fresh_user_intent_ref"]
+        )
+        unbound_envelope["freshness"]["fresh_user_intent_ref"]["id"] = "evidence:forged_fresh_intent"
+        validate_instance("turn-intent-envelope-vnext", unbound_envelope)
+
+        result = authorize_vnext_tool_call(
+            unbound_envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "blocked")
+        self.assertIn("fresh_user_intent_evidence_unbound", result.reason_codes)
+        assert result.authorization_decision is not None
+        self.assertEqual(result.authorization_decision["verdict"], "deny")
+        self.assertFalse(result.authorization_decision["restrictions"]["write_allowed"])
+
+        kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
+        action = envelope["proposed_actions"][0]
+        copied_allow = kernel.authorize(envelope, action)
+        copied_ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=copied_allow,
+            tool_name="memory.write",
+            status="not_started",
+            output_path="builder://turns/req-source-bound-freshness/tool-ledgers/memory.write",
+            summary="Copied ledger must not make unbound freshness executable.",
+        )
+        decision = kernel.governor_decision(unbound_envelope, authorizations=[copied_allow], tool_ledgers=[copied_ledger])
+        self.assertEqual(decision["outcome"], "deny")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertIn("fresh_user_intent_evidence_unbound", decision["execution_boundary"]["reasons"])
 
     def test_blocks_native_vnext_without_matching_proposed_action(self) -> None:
         legacy = parse_turn_intent_envelope(legacy_envelope_payload())

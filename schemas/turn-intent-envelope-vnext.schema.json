@@ -42,9 +42,15 @@
     "freshness": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fresh_user_intent_present", "stale_state_used_as_authority"],
+      "required": ["fresh_user_intent_present", "fresh_user_intent_ref", "stale_state_used_as_authority"],
       "properties": {
         "fresh_user_intent_present": { "type": "boolean" },
+        "fresh_user_intent_ref": {
+          "anyOf": [
+            { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+            { "type": "null" }
+          ]
+        },
         "stale_state_used_as_authority": { "type": "boolean", "const": false },
         "memory_used_as_instruction": { "type": "boolean", "const": false },
         "pending_state_used_as_authority": { "type": "boolean", "const": false }
@@ -144,6 +150,40 @@
     "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "selected_move": {
+            "enum": ["read_current_state", "confirm_action", "execute_action"]
+          }
+        },
+        "required": ["selected_move"]
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": { "const": "human" }
+            }
+          },
+          "freshness": {
+            "properties": {
+              "fresh_user_intent_present": { "const": true },
+              "fresh_user_intent_ref": {
+                "allOf": [
+                  { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
+                  {
+                    "properties": {
+                      "kind": { "const": "fresh_user_intent" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": { "selected_move": { "const": "execute_action" } },

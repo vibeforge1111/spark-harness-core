@@ -133,6 +133,7 @@ LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS = (
     "can_publish",
     "can_schedule",
 )
+FRESH_USER_INTENT_REQUIRED_MOVES = frozenset({"read_current_state", "confirm_action", "execute_action"})
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,7 @@ class HarnessKernel:
                 confidence=confidence or 0.7,
             )
         ]
+        fresh_user_intent_ref = self._fresh_user_intent_ref_from_evidence(evidence_items)
         actions = proposed_actions or []
         state = authority_state or self._default_authority_state(selected_move, actions)
         envelope = {
@@ -184,7 +186,8 @@ class HarnessKernel:
             "selected_move": selected_move,
             "intent_summary": intent_summary,
             "freshness": {
-                "fresh_user_intent_present": True,
+                "fresh_user_intent_present": fresh_user_intent_ref is not None,
+                "fresh_user_intent_ref": fresh_user_intent_ref,
                 "stale_state_used_as_authority": False,
                 "memory_used_as_instruction": False,
                 "pending_state_used_as_authority": False,
@@ -241,7 +244,12 @@ class HarnessKernel:
         authority_state = envelope["action_authority"]["state"]
         executable = authority_state == "executable"
         read_only_authorized = authority_state == "read_only" and action.get("action_type") == "read"
-        if authority_state == "confirmation_required":
+        freshness_reasons = self._fresh_user_intent_authority_reason_codes(envelope)
+        if freshness_reasons and (executable or read_only_authorized or authority_state == "confirmation_required"):
+            verdict = "deny"
+            approval = {"required": False, "status": "not_required"}
+            reasons = freshness_reasons
+        elif authority_state == "confirmation_required":
             verdict = "interrupt"
             approval = {"required": True, "status": "requested"}
             reasons = ["Envelope requires explicit confirmation before execution."]
@@ -273,7 +281,7 @@ class HarnessKernel:
             "reasons": reasons,
             "evidence": envelope["evidence"],
             "approval": approval,
-            "restrictions": self._restrictions_for_action(action),
+            "restrictions": self._restrictions_for_decision(verdict, action),
             "trace": trace_ref("authorization", "Authorization decision created by Spark Harness Core."),
         }
         return validate_instance("authorization-decision-v1", decision)
@@ -369,6 +377,7 @@ class HarnessKernel:
         boundary = decision.get("execution_boundary") if isinstance(decision.get("execution_boundary"), dict) else {}
         if outcome == "execute" and not bool(boundary.get("action_authorized")):
             reason_codes.append("governor_action_not_authorized")
+        reason_codes.extend(self._fresh_user_intent_authority_reason_codes(decision.get("envelope", {})))
 
         turn_id = str(decision.get("turn_id") or "")
         matching_authorization = self._matching_governor_authorization(
@@ -1108,6 +1117,52 @@ class HarnessKernel:
         }
         return validate_instance("self-evolution-run-v1", record)
 
+    @staticmethod
+    def _fresh_user_intent_ref_from_evidence(evidence_items: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for item in evidence_items:
+            if isinstance(item, dict) and item.get("kind") == "fresh_user_intent":
+                return item
+        return None
+
+    @staticmethod
+    def _fresh_user_intent_authority_reason_codes(envelope: dict[str, Any]) -> list[str]:
+        if str(envelope.get("selected_move") or "") not in FRESH_USER_INTENT_REQUIRED_MOVES:
+            return []
+
+        reasons: list[str] = []
+        actor = envelope.get("actor") if isinstance(envelope.get("actor"), dict) else {}
+        if actor.get("kind") != "human":
+            reasons.append("fresh_user_intent_actor_not_human")
+
+        freshness = envelope.get("freshness") if isinstance(envelope.get("freshness"), dict) else {}
+        if not freshness.get("fresh_user_intent_present"):
+            reasons.append("fresh_user_intent_missing")
+        if freshness.get("stale_state_used_as_authority"):
+            reasons.append("stale_state_used_as_authority")
+        if freshness.get("memory_used_as_instruction"):
+            reasons.append("memory_used_as_instruction")
+        if freshness.get("pending_state_used_as_authority"):
+            reasons.append("pending_state_used_as_authority")
+
+        fresh_ref = freshness.get("fresh_user_intent_ref") if isinstance(freshness, dict) else None
+        if not isinstance(fresh_ref, dict):
+            reasons.append("fresh_user_intent_ref_missing")
+            return reasons
+        if fresh_ref.get("kind") != "fresh_user_intent":
+            reasons.append("fresh_user_intent_ref_not_fresh_user_intent")
+
+        evidence_items = envelope.get("evidence") if isinstance(envelope.get("evidence"), list) else []
+        bound = any(
+            isinstance(item, dict)
+            and item.get("id") == fresh_ref.get("id")
+            and item.get("kind") == "fresh_user_intent"
+            and item.get("source") == fresh_ref.get("source")
+            for item in evidence_items
+        )
+        if not bound:
+            reasons.append("fresh_user_intent_evidence_unbound")
+        return list(dict.fromkeys(reasons))
+
     def change_manifest_runner(
         self,
         *,
@@ -1166,6 +1221,8 @@ class HarnessKernel:
         selected_move = str(envelope["selected_move"])
         action_count = len(envelope.get("proposed_actions", []))
         verdicts = [str(item.get("verdict") or "") for item in authorizations]
+        if self._fresh_user_intent_authority_reason_codes(envelope):
+            return "deny"
         if state == "executable" and "allow" in verdicts:
             if self._has_matching_execution_ledger(envelope, authorizations, tool_ledgers):
                 return "execute"
@@ -1403,6 +1460,9 @@ class HarnessKernel:
                     reasons.append(str(reason))
         if envelope["action_authority"].get("requires_human_confirmation"):
             reasons.append("human_confirmation_required_by_envelope")
+        for reason in self._fresh_user_intent_authority_reason_codes(envelope):
+            if reason not in reasons:
+                reasons.append(reason)
         return reasons
 
     def _default_reply_style(self, outcome: str) -> str:
@@ -1607,6 +1667,17 @@ class HarnessKernel:
             or (action_type == "browser_action" and requires_confirmation),
             "publish_allowed": action_type in {"publish", "deploy", "open_pr"},
         }
+
+    def _restrictions_for_decision(self, verdict: str, action: dict[str, Any]) -> dict[str, bool]:
+        restrictions = self._restrictions_for_action(action)
+        if verdict == "deny":
+            return {
+                **restrictions,
+                "network_allowed": False,
+                "write_allowed": False,
+                "publish_allowed": False,
+            }
+        return restrictions
 
     @staticmethod
     def _legacy_plane_has_high_agency_risk(authority_risk: dict[str, Any]) -> bool:
