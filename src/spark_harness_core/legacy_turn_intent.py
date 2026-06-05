@@ -811,12 +811,32 @@ def verify_governor_tool_authority(
         if isinstance(governor_decision, dict)
         else "future_surface"
     )
-    return kernel.verify_governor_execution_authority(
+    expected_capability_id = _safe_id("capability", f"{owner_system}:{tool_name}")
+    result = kernel.verify_governor_execution_authority(
         governor_decision,
-        expected_capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+        expected_capability_id=expected_capability_id,
         expected_action_type=_action_type(mutation_class, publishes, external_network),
         tool_name=tool_name,
         action_id=action_id,
         allow_read_only=allow_read_only,
         require_pre_execution_ledger=require_pre_execution_ledger,
     )
+    if result.get("allowed"):
+        return result
+
+    if (
+        owner_system == "domain-chip-memory"
+        and mutation_class == "writes_memory"
+        and tool_name in {"memory.write", "domain-chip-memory.memory.write"}
+    ):
+        return kernel.verify_governor_execution_authority(
+            governor_decision,
+            expected_capability_id=_safe_id("capability", "domain-chip-memory:memory.write"),
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            action_id=action_id,
+            allow_read_only=allow_read_only,
+            require_pre_execution_ledger=require_pre_execution_ledger,
+        )
+
+    return result

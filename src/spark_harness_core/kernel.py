@@ -101,6 +101,7 @@ NETWORK_ACTION_TYPES = frozenset(
 )
 WRITE_ACTION_TYPES = frozenset(
     {
+        "memory.write",
         "write_memory",
         "edit_file",
         "launch_mission",

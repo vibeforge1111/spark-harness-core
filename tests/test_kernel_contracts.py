@@ -255,7 +255,7 @@ class KernelContractTests(unittest.TestCase):
         kernel = HarnessKernel(surface="telegram")
         action = kernel.proposed_action(
             capability_id="capability:domain-chip-memory:memory.write",
-            action_type="write_memory",
+            action_type="memory.write",
             risk_tier="low",
             summary="Write an explicit Telegram profile fact.",
             args_path="telegram://turns/req-memory-write/actions/memory.write",
@@ -275,7 +275,7 @@ class KernelContractTests(unittest.TestCase):
             envelope=envelope,
             action=action,
             authorization=authorization,
-            tool_name="memory.write",
+            tool_name="domain-chip-memory.memory.write",
             status="not_started",
             output_path="builder://memory/write/not-started.json",
             summary="Memory write is authorized and waiting to execute.",
@@ -285,8 +285,8 @@ class KernelContractTests(unittest.TestCase):
         verified = kernel.verify_governor_execution_authority(
             decision,
             expected_capability_id="capability:domain-chip-memory:memory.write",
-            expected_action_type="write_memory",
-            tool_name="memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
         )
 
         self.assertTrue(verified["allowed"])
@@ -301,8 +301,8 @@ class KernelContractTests(unittest.TestCase):
         blocked = kernel.verify_governor_execution_authority(
             copied,
             expected_capability_id="capability:domain-chip-memory:memory.write",
-            expected_action_type="write_memory",
-            tool_name="memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
         )
 
         self.assertFalse(blocked["allowed"])
@@ -315,6 +315,35 @@ class KernelContractTests(unittest.TestCase):
             mutation_class="writes_memory",
         )
         self.assertTrue(wrapper_verified["allowed"])
+
+    def test_authority_binding_ref_evidence_is_schema_valid(self) -> None:
+        kernel = HarnessKernel(surface="memory")
+        fresh = evidence_ref("fresh_user_intent", "memory", "User explicitly authorized this memory write.")
+        ref = evidence_ref(
+            "authority_binding_ref",
+            "domain-chip-memory",
+            "spark-researcher.memory.working:C:/tmp/spark-runtime",
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly authorized a bound memory write.",
+            raw_turn_summary="Remember this project preference.",
+            evidence=[fresh, ref],
+            proposed_actions=[
+                kernel.proposed_action(
+                    capability_id="capability:domain-chip-memory:memory.write",
+                    action_type="memory.write",
+                    risk_tier="low",
+                    summary="Write a bound memory item.",
+                    args_path="memory://working.json",
+                    requires_confirmation=False,
+                )
+            ],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        self.assertEqual(envelope["evidence"][1]["kind"], "authority_binding_ref")
 
     def test_governor_decision_interrupts_high_risk_actions(self) -> None:
         kernel = HarnessKernel(surface="telegram")

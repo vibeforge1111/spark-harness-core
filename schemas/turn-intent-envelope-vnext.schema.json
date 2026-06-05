@@ -95,6 +95,7 @@
             "type": "string",
             "enum": [
               "read",
+              "memory.write",
               "write_memory",
               "edit_file",
               "run_command",
