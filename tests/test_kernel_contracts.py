@@ -599,7 +599,8 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(envelope["surface"], "telegram")
         self.assertEqual(envelope["selected_move"], "execute_action")
         self.assertEqual(envelope["action_authority"]["state"], "executable")
-        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "write_memory")
+        self.assertEqual(envelope["proposed_actions"][0]["capability_id"], "capability:domain-chip-memory:memory.write")
+        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "memory.write")
 
         result = authorize_vnext_tool_call(
             envelope,
@@ -610,6 +611,7 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(result.verdict, "allowed")
         self.assertEqual(result.reason_codes, ())
+        self.assertEqual(result.tool_call_ledger["tool_name"], "domain-chip-memory.memory.write")
 
     def test_builds_native_vnext_tool_intent_for_memory_read(self) -> None:
         envelope = build_vnext_tool_intent_envelope(

@@ -64,6 +64,11 @@ _RISK_ORDER = {
     "high": 4,
     "critical": 5,
 }
+_DOMAIN_CHIP_MEMORY_OWNER = "domain-chip-memory"
+_DOMAIN_CHIP_MEMORY_WRITE_TOOL = "domain-chip-memory.memory.write"
+_DOMAIN_CHIP_MEMORY_WRITE_CAPABILITY = "capability:domain-chip-memory:memory.write"
+_DOMAIN_CHIP_MEMORY_WRITE_ACTION = "memory.write"
+_DOMAIN_CHIP_MEMORY_WRITE_TOOL_ALIASES = frozenset({"memory.write", _DOMAIN_CHIP_MEMORY_WRITE_TOOL})
 
 
 @dataclass(frozen=True)
@@ -283,6 +288,33 @@ def _action_type(mutation_class: MutationClass, publishes: bool, external_networ
     }.get(mutation_class, "run_command")
 
 
+def _tool_action_contract(
+    *,
+    tool_name: str,
+    owner_system: str,
+    mutation_class: MutationClass,
+    publishes: bool,
+    external_network: bool,
+) -> tuple[str, str, str]:
+    if (
+        owner_system == _DOMAIN_CHIP_MEMORY_OWNER
+        and mutation_class == "writes_memory"
+        and tool_name in _DOMAIN_CHIP_MEMORY_WRITE_TOOL_ALIASES
+        and not publishes
+        and not external_network
+    ):
+        return (
+            _DOMAIN_CHIP_MEMORY_WRITE_CAPABILITY,
+            _DOMAIN_CHIP_MEMORY_WRITE_ACTION,
+            _DOMAIN_CHIP_MEMORY_WRITE_TOOL,
+        )
+    return (
+        _safe_id("capability", f"{owner_system}:{tool_name}"),
+        _action_type(mutation_class, publishes, external_network),
+        tool_name,
+    )
+
+
 def _risk_tier(mutation_class: MutationClass, publishes: bool, external_network: bool) -> str:
     if publishes or mutation_class == "publishes":
         return "high"
@@ -448,7 +480,13 @@ def build_vnext_action_intent_envelope(
         if not owner_system:
             raise ValueError("owner_system is required for each VNext action.")
 
-        action_type = _action_type(mutation_class, publishes, external_network)
+        capability_id, action_type, _ledger_tool_name = _tool_action_contract(
+            tool_name=tool_name,
+            owner_system=owner_system,
+            mutation_class=mutation_class,  # type: ignore[arg-type]
+            publishes=publishes,
+            external_network=external_network,
+        )
         risk_tier = _risk_tier(mutation_class, publishes, external_network)
         action_confirmation = (
             risk_tier in {"high", "critical"}
@@ -459,7 +497,7 @@ def build_vnext_action_intent_envelope(
         confirmation_required = confirmation_required or action_confirmation
         proposed_actions.append(
             kernel.proposed_action(
-                capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+                capability_id=capability_id,
                 action_type=action_type,
                 risk_tier=risk_tier,
                 summary=str(item.get("summary") or f"{owner_system} proposed {action_type} via {tool_name}."),
@@ -526,10 +564,16 @@ def _proposed_action(
     publishes: bool,
     external_network: bool,
 ) -> dict[str, Any]:
-    action_type = _action_type(mutation_class, publishes, external_network)
+    capability_id, action_type, _ledger_tool_name = _tool_action_contract(
+        tool_name=tool_name,
+        owner_system=owner_system,
+        mutation_class=mutation_class,
+        publishes=publishes,
+        external_network=external_network,
+    )
     risk_tier = _risk_tier(mutation_class, publishes, external_network)
     return kernel.proposed_action(
-        capability_id=_safe_id("capability", f"{owner_system}:{tool_name}"),
+        capability_id=capability_id,
         action_type=action_type,
         risk_tier=risk_tier,
         summary=f"Builder bridge proposed {action_type} via {tool_name}.",
@@ -719,8 +763,13 @@ def authorize_vnext_tool_call(
         surface=_surface(str(envelope.get("surface") or "future_surface")),
         actor_id_ref=str((envelope.get("actor") or {}).get("id_ref") or "human:redacted"),
     )
-    expected_action_type = _action_type(mutation_class, publishes, external_network)
-    expected_capability_id = _safe_id("capability", f"{owner_system}:{tool_name}")
+    expected_capability_id, expected_action_type, ledger_tool_name = _tool_action_contract(
+        tool_name=tool_name,
+        owner_system=owner_system,
+        mutation_class=mutation_class,
+        publishes=publishes,
+        external_network=external_network,
+    )
     action = _matching_vnext_action(
         envelope,
         expected_capability_id=expected_capability_id,
@@ -752,9 +801,12 @@ def authorize_vnext_tool_call(
         envelope=envelope,
         action=action,
         authorization=decision,
-        tool_name=tool_name,
+        tool_name=ledger_tool_name,
         status="not_started",
-        output_path=f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}/tool-ledgers/{_safe_id('tool', tool_name)}",
+        output_path=(
+            f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}"
+            f"/tool-ledgers/{_safe_id('tool', ledger_tool_name)}"
+        ),
         summary=(
             "Tool call authorized and awaiting execution."
             if decision["verdict"] == "allow"
