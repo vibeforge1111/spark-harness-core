@@ -2,6 +2,7 @@ export type HarnessCoreSchemaVersion = 'turn-intent-envelope-vnext';
 export type HarnessCoreAuthorizationSchemaVersion = 'authorization-decision-v1';
 export type HarnessCoreToolLedgerSchemaVersion = 'tool-call-ledger-v1';
 export type HarnessCoreGovernorSchemaVersion = 'governor-decision-v1';
+export type HarnessCoreGovernorConsumerVerificationSchemaVersion = 'governor-consumer-verification-v1';
 
 export type HarnessCoreSurface =
   | 'telegram'
@@ -265,7 +266,7 @@ export interface GovernorDecisionV1 {
 }
 
 export interface HarnessCoreGovernorConsumerVerification {
-  schema_version: 'governor-consumer-verification-v1';
+  schema_version: HarnessCoreGovernorConsumerVerificationSchemaVersion;
   allowed: boolean;
   reason_codes: string[];
   source_kind: 'governor_decision' | 'missing_governor_decision';
@@ -279,6 +280,24 @@ export interface HarnessCoreGovernorConsumerVerification {
   capability_id: string | null;
   authorization_decision_id: string | null;
   ledger_id: string | null;
+}
+
+export interface HarnessCoreBoundLedgerRow {
+  turn_id: string | null;
+  action_id: string | null;
+  capability_id: string | null;
+  authorization_decision_id: string | null;
+  ledger_id: string | null;
+  tool_name: string | null;
+  owner_system: string | null;
+  mutation_class: string | null;
+  outcome: HarnessCoreGovernorOutcome | null;
+  status: ToolCallLedgerV1['result']['status'] | null;
+  surface: HarnessCoreSurface | string | null;
+  request_id: string | null;
+  trace_ref: string | null;
+  summary: string | null;
+  ledger_json: ToolCallLedgerV1;
 }
 
 export type HarnessCoreReadinessCategoryName =
@@ -1194,6 +1213,44 @@ function createGovernorConsumerVerification(input: {
     ledger_id: input.ledger?.ledger_id || null
   };
 }
+
+function stringOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+export function boundHarnessCoreLedgerRow(input: {
+  ledger: ToolCallLedgerV1;
+  verdict: HarnessCoreGovernorConsumerVerification;
+  owner_system?: string | null;
+  mutation_class?: string | null;
+  surface?: HarnessCoreSurface | string | null;
+  request_id?: string | null;
+  trace_ref?: string | null;
+}): HarnessCoreBoundLedgerRow {
+  const summary = stringOrNull(input.ledger.result.summary) || stringOrNull(input.ledger.trace.summary);
+  return {
+    turn_id: stringOrNull(input.ledger.turn_id),
+    action_id: stringOrNull(input.ledger.action_id),
+    capability_id: stringOrNull(input.ledger.capability_id),
+    authorization_decision_id:
+      stringOrNull(input.verdict.authorization_decision_id) || stringOrNull(input.ledger.authorization.decision_id),
+    ledger_id: stringOrNull(input.ledger.ledger_id),
+    tool_name: stringOrNull(input.ledger.tool_name),
+    owner_system: stringOrNull(input.owner_system),
+    mutation_class: stringOrNull(input.mutation_class),
+    outcome: input.verdict.outcome || null,
+    status: input.ledger.result.status || null,
+    surface: stringOrNull(input.surface),
+    request_id: stringOrNull(input.request_id),
+    trace_ref: stringOrNull(input.trace_ref) || stringOrNull(input.ledger.trace.id),
+    summary,
+    ledger_json: input.ledger
+  };
+}
+
+export const boundLedgerRow = boundHarnessCoreLedgerRow;
 
 export function verifyHarnessCoreGovernorExecutionAuthority(input: {
   governor_decision?: GovernorDecisionV1 | null;

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, evidence_ref
+from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, bound_ledger_row, evidence_ref
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
@@ -756,6 +756,62 @@ class KernelContractTests(unittest.TestCase):
         assert result.tool_call_ledger is not None
         self.assertEqual(result.authorization_decision["verdict"], "allow")
         self.assertEqual(result.tool_call_ledger["authorization"]["decision_id"], result.authorization_decision["decision_id"])
+
+    def test_governor_consumer_verification_is_validated_and_binds_ledger_row(self) -> None:
+        kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-bound-ledger-row",
+            source_kind="telegram_runtime_profile_fact_observation",
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Telegram memory write request summarized.",
+        )
+        action = envelope["proposed_actions"][0]
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="memory.write",
+            status="not_started",
+            output_path="builder://turns/req-bound-ledger-row/tool-ledgers/memory.write",
+            summary="Memory write has not started yet.",
+        )
+        governor = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+        verification = kernel.verify_governor_execution_authority(
+            governor,
+            expected_capability_id=action["capability_id"],
+            expected_action_type=action["action_type"],
+            tool_name="memory.write",
+        )
+
+        validate_instance("governor-consumer-verification-v1", verification)
+        self.assertTrue(verification["allowed"])
+        self.assertEqual(verification["ledger_id"], ledger["ledger_id"])
+
+        row = bound_ledger_row(
+            ledger,
+            verification,
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            surface="telegram",
+            request_id="req-bound-ledger-row",
+            trace_ref="trace:req-bound-ledger-row",
+        )
+        self.assertEqual(row["turn_id"], envelope["turn_id"])
+        self.assertEqual(row["action_id"], action["action_id"])
+        self.assertEqual(row["authorization_decision_id"], authorization["decision_id"])
+        self.assertEqual(row["ledger_id"], ledger["ledger_id"])
+        self.assertEqual(row["outcome"], "execute")
+        self.assertEqual(row["status"], "not_started")
+        self.assertEqual(row["surface"], "telegram")
+        self.assertEqual(row["request_id"], "req-bound-ledger-row")
+        self.assertEqual(row["trace_ref"], "trace:req-bound-ledger-row")
+        self.assertEqual(row["ledger_json"], ledger)
 
     def test_vnext_freshness_requires_source_bound_human_evidence(self) -> None:
         envelope = build_vnext_tool_intent_envelope(

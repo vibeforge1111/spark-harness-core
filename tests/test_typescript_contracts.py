@@ -449,6 +449,15 @@ class TypeScriptContractTests(unittest.TestCase):
               owner_system: 'spawner-ui',
               action_type: 'launch_mission'
             });
+            const boundLedgerRow = core.boundHarnessCoreLedgerRow({
+              ledger: authorizedGovernorDecision.tool_ledgers[0],
+              verdict: governorConsumerVerification,
+              owner_system: 'spawner-ui',
+              mutation_class: 'launches_mission',
+              surface: 'spawner',
+              request_id: 'dispatch-vnext-test',
+              trace_ref: 'trace:dispatch-vnext-test'
+            });
             const copiedGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
             copiedGovernorDecision.tool_ledgers[0].action_id = 'action:copied-stale-ledger';
             copiedGovernorDecision.tool_ledgers[0].authorization.action_id = 'action:copied-stale-ledger';
@@ -548,6 +557,7 @@ class TypeScriptContractTests(unittest.TestCase):
               authorizedGovernorDecision,
               finalizedAuthorizedLedger,
               governorConsumerVerification,
+              boundLedgerRow,
               copiedGovernorConsumerVerification,
               unboundFreshGovernorDecision,
               unboundFreshVerification,
@@ -642,6 +652,15 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["finalizedAuthorizedLedger"]["lifecycle"][-1]["verdict"], "passed")
         self.assertTrue(payload["governorConsumerVerification"]["allowed"])
         self.assertEqual(payload["governorConsumerVerification"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertEqual(payload["boundLedgerRow"]["turn_id"], payload["authorizedGovernorDecision"]["turn_id"])
+        self.assertEqual(
+            payload["boundLedgerRow"]["authorization_decision_id"],
+            payload["authorizedGovernorDecision"]["authorizations"][0]["decision_id"],
+        )
+        self.assertEqual(payload["boundLedgerRow"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertEqual(payload["boundLedgerRow"]["status"], "not_started")
+        self.assertEqual(payload["boundLedgerRow"]["owner_system"], "spawner-ui")
+        self.assertEqual(payload["boundLedgerRow"]["mutation_class"], "launches_mission")
         self.assertFalse(payload["copiedGovernorConsumerVerification"]["allowed"])
         self.assertIn(
             "governor_missing_matching_tool_ledger",

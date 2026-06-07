@@ -4,6 +4,7 @@ from spark_harness_core.kernel import (
     READINESS_CATEGORIES,
     HarnessKernel,
     artifact_ref,
+    bound_ledger_row,
     evidence_ref,
     trace_ref,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "authorize_vnext_tool_call",
     "build_vnext_action_intent_envelope",
     "build_vnext_tool_intent_envelope",
+    "bound_ledger_row",
     "evidence_ref",
     "finalize_legacy_tool_call_ledger",
     "load_schema",

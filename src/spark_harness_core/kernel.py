@@ -9,6 +9,25 @@ from uuid import uuid4
 from spark_harness_core.schemas import validate_instance
 
 
+LEDGER_ROW_COLUMNS = (
+    "turn_id",
+    "action_id",
+    "capability_id",
+    "authorization_decision_id",
+    "ledger_id",
+    "tool_name",
+    "owner_system",
+    "mutation_class",
+    "outcome",
+    "status",
+    "surface",
+    "request_id",
+    "trace_ref",
+    "summary",
+    "ledger_json",
+)
+
+
 def _now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -56,6 +75,51 @@ def evidence_ref(
         "confidence": confidence,
         "trace_refs": [],
     }
+
+
+def _string_or_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def bound_ledger_row(
+    ledger: dict[str, Any],
+    verdict: dict[str, Any],
+    *,
+    owner_system: str | None = None,
+    mutation_class: str | None = None,
+    surface: str | None = None,
+    request_id: str | None = None,
+    trace_ref: str | None = None,
+) -> dict[str, Any]:
+    """Flatten a validated ledger/verifier pair into the shared store row shape."""
+
+    validated_ledger = validate_instance("tool-call-ledger-v1", ledger)
+    validated_verdict = validate_instance("governor-consumer-verification-v1", verdict)
+    authorization = validated_ledger.get("authorization") if isinstance(validated_ledger.get("authorization"), dict) else {}
+    result = validated_ledger.get("result") if isinstance(validated_ledger.get("result"), dict) else {}
+    trace = validated_ledger.get("trace") if isinstance(validated_ledger.get("trace"), dict) else {}
+    summary = _string_or_none(result.get("summary")) or _string_or_none(trace.get("summary"))
+    ledger_trace_ref = _string_or_none(trace.get("id"))
+    row = {
+        "turn_id": _string_or_none(validated_ledger.get("turn_id")),
+        "action_id": _string_or_none(validated_ledger.get("action_id")),
+        "capability_id": _string_or_none(validated_ledger.get("capability_id")),
+        "authorization_decision_id": _string_or_none(validated_verdict.get("authorization_decision_id"))
+        or _string_or_none(authorization.get("decision_id")),
+        "ledger_id": _string_or_none(validated_ledger.get("ledger_id")),
+        "tool_name": _string_or_none(validated_ledger.get("tool_name")),
+        "owner_system": _string_or_none(owner_system),
+        "mutation_class": _string_or_none(mutation_class),
+        "outcome": _string_or_none(validated_verdict.get("outcome")),
+        "status": _string_or_none(result.get("status")),
+        "surface": _string_or_none(surface),
+        "request_id": _string_or_none(request_id),
+        "trace_ref": _string_or_none(trace_ref) or ledger_trace_ref,
+        "summary": summary,
+        "ledger_json": deepcopy(validated_ledger),
+    }
+    return {key: row[key] for key in LEDGER_ROW_COLUMNS}
 
 
 _RISK_ORDER = {
@@ -1378,7 +1442,7 @@ class HarnessKernel:
         expected_action_type: str | None = None,
         tool_name: str | None = None,
     ) -> dict[str, Any]:
-        return {
+        verification = {
             "schema_version": "governor-consumer-verification-v1",
             "allowed": allowed,
             "reason_codes": reason_codes,
@@ -1394,6 +1458,7 @@ class HarnessKernel:
             "authorization_decision_id": str((authorization or {}).get("decision_id") or "") or None,
             "ledger_id": str((ledger or {}).get("ledger_id") or "") or None,
         }
+        return validate_instance("governor-consumer-verification-v1", verification)
 
     @staticmethod
     def _assert_authorization_matches_action(
