@@ -5,6 +5,7 @@ kind = "runtime"
 plane = "authority"
 description = "Spark Genesis Harness canonical authority kernel, schemas, ledger, registry, readiness, and self-evolution contracts."
 homepage = "https://github.com/vibeforge1111/spark-harness-core"
+license = "MIT"
 
 [provides]
 capabilities = [
