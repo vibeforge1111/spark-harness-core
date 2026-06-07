@@ -1,6 +1,6 @@
 # Spark Harness Runtime Charter
 
-Date: 2026-06-01
+Date: 2026-06-07
 
 ## Purpose
 
@@ -20,7 +20,7 @@ No surface should turn raw language into high-agency action by itself.
 - Keywords, memory, pending state, prior missions, provider names, route history, and local classifiers are evidence only.
 - The Governor is the only runtime component that may promote evidence into `TurnIntentEnvelopeVNext`.
 - An action is not executable until it has a valid envelope and an `AuthorizationDecisionV1`.
-- A high-agency action is not complete until it has a `ToolCallLedgerV1` and result verdict.
+- A high-agency action is not complete until it has a `ToolCallLedgerV1`, consumer-verification record, and result verdict.
 
 ## Legacy Plane Retirement
 
@@ -76,6 +76,9 @@ Execution status is authority-bound:
   executed by changing the ledger result later.
 - Tool ledgers are evidence records, not permission grants. The Governor and
   authorization decision remain the execution boundary.
+- Consumer verification is fail-closed: if the consuming surface cannot bind
+  the Governor decision, authorization, action, capability, tool, and ledger
+  ids, it must not execute or publish a successful ledger row.
 
 ## Authorization Verdicts
 
@@ -124,7 +127,10 @@ Every meaningful step must be inspectable:
 - selected move
 - proposed action
 - authorization decision
+- Governor decision and signature state when configured
+- consumer-verification verdict
 - tool lifecycle stage
+- canonical bound ledger row
 - sanitized output
 - run verdict
 - readiness score
@@ -166,7 +172,7 @@ Every improvement must declare:
 
 Do not ship or promote a surface when:
 
-- high-agency action can run without envelope, authorization, ledger, and verdict
+- high-agency action can run without envelope, authorization, Governor decision, consumer verification, ledger, and verdict
 - a route-specific regex owns execution authority
 - a legacy patch, fallback router, or adapter-local detector can bypass or fight the Governor
 - memory or pending state overrides fresh user intent
