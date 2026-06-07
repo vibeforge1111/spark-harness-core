@@ -251,6 +251,36 @@ class KernelContractTests(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             validate_instance("governor-decision-v1", invalid)
 
+    def test_governor_decision_signature_is_part_of_canonical_contract(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        envelope = kernel.create_envelope(
+            selected_move="chat_explain",
+            intent_summary="User is discussing a governed action without asking for execution.",
+            raw_turn_summary="Discussion-only turn.",
+            confidence=0.88,
+        )
+        decision = kernel.governor_decision(envelope)
+        signed = clone(decision)
+        signed["signature"] = {
+            "schema_version": "governor-decision-signature-v1",
+            "alg": "hmac-sha256",
+            "key_id": "local",
+            "nonce": "nonce:test",
+            "created_at": "2026-06-07T00:00:00.000Z",
+            "signature": "a" * 64,
+        }
+        validate_instance("governor-decision-v1", signed)
+
+        malformed = clone(signed)
+        malformed["signature"]["signature"] = "not-hex"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", malformed)
+
+        extra_field = clone(signed)
+        extra_field["signature"]["extra"] = "not allowed"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", extra_field)
+
     def test_governor_consumer_verifier_requires_exact_tool_ledger_binding(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         action = kernel.proposed_action(

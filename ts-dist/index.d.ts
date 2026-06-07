@@ -141,6 +141,14 @@ export interface ToolCallLedgerV1 {
     trace: HarnessCoreTraceRef;
 }
 export type HarnessCoreGovernorOutcome = 'chat_only' | 'read_only' | 'prepare' | 'execute' | 'interrupt' | 'deny' | 'degrade';
+export interface GovernorDecisionSignatureV1 {
+    schema_version: 'governor-decision-signature-v1';
+    alg: 'hmac-sha256';
+    key_id: string;
+    nonce: string;
+    created_at: string;
+    signature: string;
+}
 export interface GovernorDecisionV1 {
     schema_version: HarnessCoreGovernorSchemaVersion;
     decision_id: string;
@@ -169,6 +177,7 @@ export interface GovernorDecisionV1 {
         should_interrupt: boolean;
     };
     evidence: HarnessCoreEvidenceRef[];
+    signature?: GovernorDecisionSignatureV1;
     trace: HarnessCoreTraceRef;
 }
 export interface HarnessCoreGovernorConsumerVerification {

@@ -89,6 +89,22 @@
       "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/evidenceRef" },
       "minItems": 1
     },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "alg", "key_id", "nonce", "created_at", "signature"],
+      "properties": {
+        "schema_version": { "const": "governor-decision-signature-v1" },
+        "alg": { "const": "hmac-sha256" },
+        "key_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "nonce": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        }
+      }
+    },
     "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
   },
   "allOf": [
