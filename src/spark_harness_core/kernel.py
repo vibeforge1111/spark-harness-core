@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from spark_harness_core.schemas import validate_instance
+from spark_harness_core.schemas import validate_instance, validate_schema_ref
 
 
 LEDGER_ROW_COLUMNS = (
@@ -151,6 +151,13 @@ READINESS_STATUS_RANK = {
     "release_candidate": 2,
     "public_ready": 3,
 }
+PROPOSED_ACTION_SCHEMA_REF = (
+    "https://spark.local/schemas/turn-intent-envelope-vnext.schema.json#/properties/proposed_actions/items"
+)
+RESOURCE_SCHEMA_REF = "https://spark.local/schemas/resource-registry-v1.schema.json#/properties/resources/items"
+EXPERIENCE_ENTRY_SCHEMA_REF = "https://spark.local/schemas/experience-index-v1.schema.json#/properties/entries/items"
+EVALUATION_CASE_SCHEMA_REF = "https://spark.local/schemas/evaluation-pack-v1.schema.json#/properties/cases/items"
+METRIC_SCHEMA_REF = "https://spark.local/schemas/common-v1.schema.json#/$defs/metric"
 NETWORK_ACTION_TYPES = frozenset(
     {
         "run_command",
@@ -287,7 +294,7 @@ class HarnessKernel:
         args_path: str,
         requires_confirmation: bool,
     ) -> dict[str, Any]:
-        return {
+        action = {
             "action_id": _id("action"),
             "capability_id": capability_id,
             "action_type": action_type,
@@ -296,6 +303,7 @@ class HarnessKernel:
             "args_ref": artifact_ref("tool_args", args_path, "Sanitized tool arguments."),
             "requires_confirmation": requires_confirmation,
         }
+        return validate_schema_ref(PROPOSED_ACTION_SCHEMA_REF, action)
 
     def authorize(
         self,
@@ -617,7 +625,7 @@ class HarnessKernel:
         change_manifest_refs: list[str] | None = None,
         rollback_ref: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return {
+        resource = {
             "resource_id": resource_id,
             "resource_type": resource_type,
             "owner_repo": owner_repo,
@@ -632,6 +640,7 @@ class HarnessKernel:
                 or artifact_ref("rollback", f"rollback/{resource_id}.json", "Rollback plan reference."),
             },
         }
+        return validate_schema_ref(RESOURCE_SCHEMA_REF, resource)
 
     def resource_registry(self, resources: list[dict[str, Any]]) -> dict[str, Any]:
         registry = {
@@ -664,7 +673,7 @@ class HarnessKernel:
             entry["linked_run_id"] = linked_run_id
         if linked_change_id:
             entry["linked_change_id"] = linked_change_id
-        return entry
+        return validate_schema_ref(EXPERIENCE_ENTRY_SCHEMA_REF, entry)
 
     def experience_index(
         self,
@@ -701,7 +710,7 @@ class HarnessKernel:
             metric["unit"] = unit
         if higher_is_better is not None:
             metric["higher_is_better"] = higher_is_better
-        return metric
+        return validate_schema_ref(METRIC_SCHEMA_REF, metric)
 
     def evaluation_case(
         self,
@@ -712,13 +721,14 @@ class HarnessKernel:
         expected_move: str,
         expected_authority_state: str,
     ) -> dict[str, Any]:
-        return {
+        case = {
             "case_id": case_id,
             "case_type": case_type,
             "prompt_ref": prompt_ref,
             "expected_move": expected_move,
             "expected_authority_state": expected_authority_state,
         }
+        return validate_schema_ref(EVALUATION_CASE_SCHEMA_REF, case)
 
     def evaluation_pack(
         self,

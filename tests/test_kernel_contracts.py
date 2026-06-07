@@ -1174,6 +1174,48 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(evolution["promotion_decision"]["verdict"], "not_ready")
 
+    def test_kernel_validates_standalone_schema_fragments(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        artifact = artifact_ref("test_result", "experience/kernel-tests.json", "Kernel test result.")
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.proposed_action(
+                capability_id="capability:test",
+                action_type="unknown_action",
+                risk_tier="low",
+                summary="Invalid action type.",
+                args_path="experience/args.json",
+                requires_confirmation=False,
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.resource(
+                resource_id="resource:invalid",
+                resource_type="unknown_resource",
+                owner_repo="spark-harness-core",
+                version="0.1.0",
+                tests=["python -m pytest"],
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.experience_entry(
+                entry_type="unknown_entry",
+                summary="Invalid entry type.",
+                artifact=artifact,
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.metric(name="", value=True)
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.evaluation_case(
+                case_id="case:invalid",
+                case_type="negative_intent",
+                prompt_ref=artifact,
+                expected_move="chat_explain",
+                expected_authority_state="unknown_state",
+            )
+
     def test_self_evolution_promotion_requires_accepted_manifest_and_readiness(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
         evidence = [sample_evidence()]
