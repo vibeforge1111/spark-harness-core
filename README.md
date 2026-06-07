@@ -64,7 +64,6 @@ The kernel can now emit and validate the records Spark needs before promoting a 
 npm install
 npm run build
 PYTHONPATH=src python3 -m pytest tests/test_kernel_contracts.py tests/test_typescript_contracts.py -q
-npm run build
 PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas
 PYTHONPATH=src python3 -m spark_harness_core.cli resource-registry
 PYTHONPATH=src python3 -m spark_harness_core.cli governor-decision
