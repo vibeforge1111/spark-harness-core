@@ -1,3 +1,5 @@
+import { createHmac, randomUUID } from 'node:crypto';
+
 export type HarnessCoreSchemaVersion = 'turn-intent-envelope-vnext';
 export type HarnessCoreAuthorizationSchemaVersion = 'authorization-decision-v1';
 export type HarnessCoreToolLedgerSchemaVersion = 'tool-call-ledger-v1';
@@ -273,6 +275,120 @@ export interface GovernorDecisionV1 {
   evidence: HarnessCoreEvidenceRef[];
   signature?: GovernorDecisionSignatureV1;
   trace: HarnessCoreTraceRef;
+}
+
+export function canonicalHarnessCoreJson(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalHarnessCoreJson(item)).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalHarnessCoreJson(entryValue)}`)
+    .join(',')}}`;
+}
+
+export function unsignedHarnessCoreGovernorDecision<T extends Record<string, unknown>>(decision: T): Omit<T, 'signature'> {
+  const { signature: _signature, ...unsigned } = decision;
+  return unsigned;
+}
+
+export function harnessCoreGovernorDecisionSignaturePayload(
+  decision: Record<string, unknown>,
+  signature: Omit<GovernorDecisionSignatureV1, 'signature'>
+): string {
+  return canonicalHarnessCoreJson({
+    decision: unsignedHarnessCoreGovernorDecision(decision),
+    signature
+  });
+}
+
+export function signHarnessCoreGovernorDecision<T extends GovernorDecisionV1>(
+  decision: T,
+  input: {
+    key: string;
+    key_id?: string;
+    nonce?: string;
+    created_at?: string;
+  }
+): T {
+  const key = (input.key || '').trim();
+  if (!key) throw new Error('key is required');
+  const signature: Omit<GovernorDecisionSignatureV1, 'signature'> = {
+    schema_version: 'governor-decision-signature-v1',
+    alg: 'hmac-sha256',
+    key_id: (input.key_id || '').trim() || 'local',
+    nonce: input.nonce || randomUUID(),
+    created_at: input.created_at || new Date().toISOString()
+  };
+  return {
+    ...decision,
+    signature: {
+      ...signature,
+      signature: hmacSha256Hex(harnessCoreGovernorDecisionSignaturePayload(decision as unknown as Record<string, unknown>, signature), key)
+    }
+  } as T;
+}
+
+export function harnessCoreGovernorDecisionSignatureReasonCodes(input: {
+  governor_decision?: GovernorDecisionV1 | null;
+  key?: string | null;
+  expected_key_id?: string | null;
+  require_signature?: boolean;
+}): string[] {
+  const key = (input.key || '').trim();
+  const signatureRequired = Boolean(input.require_signature || key);
+  if (!signatureRequired) return [];
+  if (!key) return ['governor_signature_key_missing'];
+  const decision = input.governor_decision || null;
+  if (!decision) return ['missing_governor_decision'];
+  const signature = decision.signature || null;
+  if (!signature) return ['governor_signature_missing'];
+
+  const reasonCodes: string[] = [];
+  if (signature.schema_version !== 'governor-decision-signature-v1') reasonCodes.push('governor_signature_schema_invalid');
+  if (signature.alg !== 'hmac-sha256') reasonCodes.push('governor_signature_alg_invalid');
+  if (input.expected_key_id && signature.key_id !== input.expected_key_id) reasonCodes.push('governor_signature_key_id_mismatch');
+  if (!/^[0-9a-f]{64}$/.test(signature.signature || '')) reasonCodes.push('governor_signature_invalid');
+  if (reasonCodes.length > 0) return dedupeStrings(reasonCodes);
+
+  const expected = hmacSha256Hex(
+    harnessCoreGovernorDecisionSignaturePayload(decision as unknown as Record<string, unknown>, {
+      schema_version: signature.schema_version,
+      alg: signature.alg,
+      key_id: signature.key_id,
+      nonce: signature.nonce,
+      created_at: signature.created_at
+    }),
+    key
+  );
+  if (!constantTimeEqualHex(signature.signature, expected)) reasonCodes.push('governor_signature_invalid');
+  return dedupeStrings(reasonCodes);
+}
+
+function hmacSha256Hex(payload: string, key: string): string {
+  return createHmac('sha256', key).update(payload, 'utf8').digest('hex');
+}
+
+function constantTimeEqualHex(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
 }
 
 export interface HarnessCoreGovernorConsumerVerification {
@@ -1270,6 +1386,9 @@ export function verifyHarnessCoreGovernorExecutionAuthority(input: {
   action_id?: string;
   allow_read_only?: boolean;
   require_pre_execution_ledger?: boolean;
+  governor_hmac_key?: string | null;
+  governor_hmac_key_id?: string | null;
+  require_signature?: boolean;
 }): HarnessCoreGovernorConsumerVerification {
   const governorDecision = input.governor_decision || null;
   if (!governorDecision) {
@@ -1284,6 +1403,14 @@ export function verifyHarnessCoreGovernorExecutionAuthority(input: {
   }
 
   const reasonCodes: string[] = [];
+  reasonCodes.push(
+    ...harnessCoreGovernorDecisionSignatureReasonCodes({
+      governor_decision: governorDecision,
+      key: input.governor_hmac_key || null,
+      expected_key_id: input.governor_hmac_key_id || null,
+      require_signature: input.require_signature
+    })
+  );
   const allowedOutcomes = new Set<HarnessCoreGovernorOutcome>(['execute']);
   if (input.allow_read_only) allowedOutcomes.add('read_only');
   if (!allowedOutcomes.has(governorDecision.outcome)) {
@@ -1357,6 +1484,9 @@ export function verifyHarnessCoreGovernorToolAuthority(input: {
   action_id?: string;
   allow_read_only?: boolean;
   require_pre_execution_ledger?: boolean;
+  governor_hmac_key?: string | null;
+  governor_hmac_key_id?: string | null;
+  require_signature?: boolean;
 }): HarnessCoreGovernorConsumerVerification {
   return verifyHarnessCoreGovernorExecutionAuthority({
     governor_decision: input.governor_decision,
@@ -1365,7 +1495,10 @@ export function verifyHarnessCoreGovernorToolAuthority(input: {
     tool_name: input.tool_name,
     action_id: input.action_id,
     allow_read_only: input.allow_read_only,
-    require_pre_execution_ledger: input.require_pre_execution_ledger
+    require_pre_execution_ledger: input.require_pre_execution_ledger,
+    governor_hmac_key: input.governor_hmac_key || null,
+    governor_hmac_key_id: input.governor_hmac_key_id || null,
+    require_signature: input.require_signature
   });
 }
 

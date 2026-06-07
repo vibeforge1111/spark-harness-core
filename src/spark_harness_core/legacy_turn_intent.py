@@ -857,6 +857,9 @@ def verify_governor_tool_authority(
     action_id: str | None = None,
     allow_read_only: bool = False,
     require_pre_execution_ledger: bool = True,
+    governor_hmac_key: str | None = None,
+    governor_hmac_key_id: str | None = None,
+    require_signature: bool = False,
 ) -> dict[str, Any]:
     kernel = HarnessKernel(
         surface=_surface(str((governor_decision or {}).get("surface") or "future_surface"))
@@ -872,6 +875,9 @@ def verify_governor_tool_authority(
         action_id=action_id,
         allow_read_only=allow_read_only,
         require_pre_execution_ledger=require_pre_execution_ledger,
+        governor_hmac_key=governor_hmac_key,
+        governor_hmac_key_id=governor_hmac_key_id,
+        require_signature=require_signature,
     )
     if result.get("allowed"):
         return result
@@ -889,6 +895,9 @@ def verify_governor_tool_authority(
             action_id=action_id,
             allow_read_only=allow_read_only,
             require_pre_execution_ledger=require_pre_execution_ledger,
+            governor_hmac_key=governor_hmac_key,
+            governor_hmac_key_id=governor_hmac_key_id,
+            require_signature=require_signature,
         )
 
     return result

@@ -449,6 +449,37 @@ class TypeScriptContractTests(unittest.TestCase):
               owner_system: 'spawner-ui',
               action_type: 'launch_mission'
             });
+            const unsignedKeyedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: authorizedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret'
+            });
+            const signedGovernorDecision = core.signHarnessCoreGovernorDecision(authorizedGovernorDecision, {
+              key: 'test-secret',
+              key_id: 'local-test',
+              nonce: 'nonce:test-governor',
+              created_at: '2026-06-07T00:00:00.000Z'
+            });
+            const signedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: signedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret',
+              governor_hmac_key_id: 'local-test'
+            });
+            const tamperedSignedGovernorDecision = JSON.parse(JSON.stringify(signedGovernorDecision));
+            tamperedSignedGovernorDecision.tool_ledgers[0].tool_name = 'spawner.dispatch.forged';
+            const tamperedSignedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: tamperedSignedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret',
+              governor_hmac_key_id: 'local-test'
+            });
             const boundLedgerRow = core.boundHarnessCoreLedgerRow({
               ledger: authorizedGovernorDecision.tool_ledgers[0],
               verdict: governorConsumerVerification,
@@ -557,6 +588,10 @@ class TypeScriptContractTests(unittest.TestCase):
               authorizedGovernorDecision,
               finalizedAuthorizedLedger,
               governorConsumerVerification,
+              unsignedKeyedGovernorConsumerVerification,
+              signedGovernorDecision,
+              signedGovernorConsumerVerification,
+              tamperedSignedGovernorConsumerVerification,
               boundLedgerRow,
               copiedGovernorConsumerVerification,
               unboundFreshGovernorDecision,
@@ -652,6 +687,14 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["finalizedAuthorizedLedger"]["lifecycle"][-1]["verdict"], "passed")
         self.assertTrue(payload["governorConsumerVerification"]["allowed"])
         self.assertEqual(payload["governorConsumerVerification"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertFalse(payload["unsignedKeyedGovernorConsumerVerification"]["allowed"])
+        self.assertIn("governor_signature_missing", payload["unsignedKeyedGovernorConsumerVerification"]["reason_codes"])
+        self.assertRegex(payload["signedGovernorDecision"]["signature"]["signature"], r"^[0-9a-f]{64}$")
+        self.assertEqual(payload["signedGovernorDecision"]["signature"]["key_id"], "local-test")
+        self.assertTrue(payload["signedGovernorConsumerVerification"]["allowed"])
+        self.assertEqual(payload["signedGovernorConsumerVerification"]["reason_codes"], [])
+        self.assertFalse(payload["tamperedSignedGovernorConsumerVerification"]["allowed"])
+        self.assertIn("governor_signature_invalid", payload["tamperedSignedGovernorConsumerVerification"]["reason_codes"])
         self.assertEqual(payload["boundLedgerRow"]["turn_id"], payload["authorizedGovernorDecision"]["turn_id"])
         self.assertEqual(
             payload["boundLedgerRow"]["authorization_decision_id"],

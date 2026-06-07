@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, bound_ledger_row, evidence_ref
+from spark_harness_core.governor_signature import sign_governor_decision
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
@@ -345,6 +346,57 @@ class KernelContractTests(unittest.TestCase):
             mutation_class="writes_memory",
         )
         self.assertTrue(wrapper_verified["allowed"])
+
+        unsigned_with_key = kernel.verify_governor_execution_authority(
+            decision,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+        )
+        self.assertFalse(unsigned_with_key["allowed"])
+        self.assertIn("governor_signature_missing", unsigned_with_key["reason_codes"])
+
+        signed = sign_governor_decision(
+            decision,
+            key="test-secret",
+            key_id="local-test",
+            nonce="nonce:test-governor",
+            created_at="2026-06-07T00:00:00.000Z",
+        )
+        signed_verified = kernel.verify_governor_execution_authority(
+            signed,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertTrue(signed_verified["allowed"])
+        self.assertEqual(signed_verified["reason_codes"], [])
+
+        tampered = clone(signed)
+        tampered["tool_ledgers"][0]["tool_name"] = "domain-chip-memory.memory.delete"
+        tampered_verified = kernel.verify_governor_execution_authority(
+            tampered,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertFalse(tampered_verified["allowed"])
+        self.assertIn("governor_signature_invalid", tampered_verified["reason_codes"])
+
+        wrapper_signed_verified = verify_governor_tool_authority(
+            signed,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertTrue(wrapper_signed_verified["allowed"])
 
     def test_authority_binding_ref_evidence_is_schema_valid(self) -> None:
         kernel = HarnessKernel(surface="memory")

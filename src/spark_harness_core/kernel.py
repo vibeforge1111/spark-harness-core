@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from spark_harness_core.governor_signature import governor_decision_signature_reason_codes
 from spark_harness_core.schemas import validate_instance, validate_schema_ref
 
 
@@ -423,6 +424,9 @@ class HarnessKernel:
         action_id: str | None = None,
         allow_read_only: bool = False,
         require_pre_execution_ledger: bool = True,
+        governor_hmac_key: str | None = None,
+        governor_hmac_key_id: str | None = None,
+        require_signature: bool = False,
     ) -> dict[str, Any]:
         if not isinstance(governor_decision, dict):
             return self._governor_consumer_verification(
@@ -440,6 +444,14 @@ class HarnessKernel:
             )
 
         reason_codes: list[str] = []
+        reason_codes.extend(
+            governor_decision_signature_reason_codes(
+                decision,
+                key=governor_hmac_key,
+                expected_key_id=governor_hmac_key_id,
+                require_signature=require_signature,
+            )
+        )
         outcome = str(decision.get("outcome") or "")
         allowed_outcomes = {"execute"}
         if allow_read_only:

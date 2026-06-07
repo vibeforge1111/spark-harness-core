@@ -180,6 +180,21 @@ export interface GovernorDecisionV1 {
     signature?: GovernorDecisionSignatureV1;
     trace: HarnessCoreTraceRef;
 }
+export declare function canonicalHarnessCoreJson(value: unknown): string;
+export declare function unsignedHarnessCoreGovernorDecision<T extends Record<string, unknown>>(decision: T): Omit<T, 'signature'>;
+export declare function harnessCoreGovernorDecisionSignaturePayload(decision: Record<string, unknown>, signature: Omit<GovernorDecisionSignatureV1, 'signature'>): string;
+export declare function signHarnessCoreGovernorDecision<T extends GovernorDecisionV1>(decision: T, input: {
+    key: string;
+    key_id?: string;
+    nonce?: string;
+    created_at?: string;
+}): T;
+export declare function harnessCoreGovernorDecisionSignatureReasonCodes(input: {
+    governor_decision?: GovernorDecisionV1 | null;
+    key?: string | null;
+    expected_key_id?: string | null;
+    require_signature?: boolean;
+}): string[];
 export interface HarnessCoreGovernorConsumerVerification {
     schema_version: HarnessCoreGovernorConsumerVerificationSchemaVersion;
     allowed: boolean;
@@ -594,6 +609,9 @@ export declare function verifyHarnessCoreGovernorExecutionAuthority(input: {
     action_id?: string;
     allow_read_only?: boolean;
     require_pre_execution_ledger?: boolean;
+    governor_hmac_key?: string | null;
+    governor_hmac_key_id?: string | null;
+    require_signature?: boolean;
 }): HarnessCoreGovernorConsumerVerification;
 export declare function verifyHarnessCoreGovernorToolAuthority(input: {
     governor_decision?: GovernorDecisionV1 | null;
@@ -603,6 +621,9 @@ export declare function verifyHarnessCoreGovernorToolAuthority(input: {
     action_id?: string;
     allow_read_only?: boolean;
     require_pre_execution_ledger?: boolean;
+    governor_hmac_key?: string | null;
+    governor_hmac_key_id?: string | null;
+    require_signature?: boolean;
 }): HarnessCoreGovernorConsumerVerification;
 export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     envelope: TurnIntentEnvelopeVNext;
