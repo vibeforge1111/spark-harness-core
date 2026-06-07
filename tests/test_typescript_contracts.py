@@ -129,24 +129,21 @@ class TypeScriptContractTests(unittest.TestCase):
               status: 'passed',
               summary: 'Route matrix passed.'
             });
-            const legacyConvertedPlane = core.createHarnessCoreLegacyAuthorityPlane({
-              id: 'telegram-route-arbiter',
+            const legacyRemovedPlane = core.createHarnessCoreLegacyAuthorityPlane({
+              id: 'telegram-retired-route-helper',
               owner_repo: 'spark-telegram-bot',
               surface: 'telegram',
               plane_type: 'regex_router',
-              source_path: 'src/route-arbiter.ts',
-              summary: 'Legacy route arbiter now consumes Governor authority and records ledgers.',
+              source_path: 'removed://spark-telegram-bot/legacy-route-helper',
+              summary: 'Legacy Telegram route helper is removed; Harness Core plus Governor owns authority.',
               authority_risk: {
-                can_execute: true,
-                can_mutate_state: true,
-                can_route_turns: true,
-                can_launch_mission: true
+                can_execute: false,
+                can_mutate_state: false,
+                can_route_turns: false,
+                can_launch_mission: false
               },
-              disposition: 'canonical_consumer',
+              disposition: 'removed',
               evidence: [evidence],
-              governor_required: true,
-              consumer_of_governor: true,
-              ledger_required: true
             });
             const legacyEvidencePlane = core.createHarnessCoreLegacyAuthorityPlane({
               id: 'telegram-keyword-detector',
@@ -164,7 +161,7 @@ class TypeScriptContractTests(unittest.TestCase):
               id: 'telegram-legacy-inventory',
               owner_repo: 'spark-telegram-bot',
               surfaces: ['telegram'],
-              planes: [legacyConvertedPlane, legacyEvidencePlane]
+              planes: [legacyRemovedPlane, legacyEvidencePlane]
             });
             let blockedLegacyPlaneError = '';
             try {
@@ -583,8 +580,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["run"]["schema_version"], "harness-run-v1")
         self.assertEqual(payload["run"]["verdict"]["status"], "passed")
         self.assertEqual(payload["legacyInventory"]["schema_version"], "legacy-authority-inventory-v1")
-        self.assertEqual(payload["legacyInventory"]["summary"]["canonical_consumer_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["removed_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["canonical_consumer_count"], 0)
         self.assertEqual(payload["legacyInventory"]["summary"]["evidence_adapter_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["high_agency_risk_count"], 0)
         self.assertTrue(payload["legacyInventory"]["release_gate"]["zero_high_agency_legacy_local_gates"])
         self.assertIn("evidence adapters cannot retain high-agency", payload["blockedLegacyPlaneError"])
         self.assertEqual(payload["telegramLiveQaPacket"]["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")

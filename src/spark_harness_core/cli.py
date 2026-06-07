@@ -139,14 +139,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     legacy_inventory.add_argument("--surface", default="telegram")
     legacy_inventory.add_argument("--owner-repo", default="spark-telegram-bot")
-    legacy_inventory.add_argument("--plane-id", default="legacy-plane:telegram-route-arbiter")
+    legacy_inventory.add_argument("--plane-id", default="legacy-plane:telegram-retired-route-helper")
     legacy_inventory.add_argument("--plane-type", default="regex_router")
-    legacy_inventory.add_argument("--source-path", default="src/telegram/route-arbiter.ts")
+    legacy_inventory.add_argument("--source-path", default="removed://spark-telegram-bot/legacy-route-helper")
     legacy_inventory.add_argument(
         "--summary",
-        default="Legacy route arbiter is converted to canonical Harness Core consumer authority.",
+        default="Legacy Telegram route helper is removed; Harness Core plus Governor owns authority.",
     )
-    legacy_inventory.add_argument("--disposition", default="canonical_consumer")
+    legacy_inventory.add_argument("--disposition", default="removed")
     legacy_inventory.add_argument("--release-blocker", action="store_true")
 
     governor = subcommands.add_parser("governor-decision", help="emit a canonical Governor decision")
@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         authority_risk = {
             "can_execute": disposition in {"canonical_consumer", "release_blocker"},
             "can_mutate_state": disposition in {"canonical_consumer", "release_blocker"},
-            "can_route_turns": True,
+            "can_route_turns": disposition in {"canonical_consumer", "release_blocker"},
             "can_write_memory": False,
             "can_launch_mission": disposition in {"canonical_consumer", "release_blocker"},
             "can_call_network": False,

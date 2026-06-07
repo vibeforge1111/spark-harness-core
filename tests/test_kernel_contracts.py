@@ -1505,28 +1505,25 @@ class KernelContractTests(unittest.TestCase):
     def test_kernel_builds_legacy_authority_inventory(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         evidence = [sample_evidence("policy")]
-        converted = kernel.legacy_authority_plane(
-            plane_id="legacy-plane:telegram-route-arbiter",
+        removed_route_helper = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:telegram-retired-route-helper",
             owner_repo="spark-telegram-bot",
             surface="telegram",
             plane_type="regex_router",
-            source_path="src/route-arbiter.ts",
-            summary="Legacy route arbiter now consumes Governor authority and records ledgers.",
+            source_path="removed://spark-telegram-bot/legacy-route-helper",
+            summary="Legacy Telegram route helper is removed; Harness Core plus Governor owns authority.",
             authority_risk={
-                "can_execute": True,
-                "can_mutate_state": True,
-                "can_route_turns": True,
+                "can_execute": False,
+                "can_mutate_state": False,
+                "can_route_turns": False,
                 "can_write_memory": False,
-                "can_launch_mission": True,
+                "can_launch_mission": False,
                 "can_call_network": False,
                 "can_publish": False,
                 "can_schedule": False,
             },
-            disposition="canonical_consumer",
+            disposition="removed",
             evidence=evidence,
-            governor_required=True,
-            consumer_of_governor=True,
-            ledger_required=True,
         )
         evidence_only = kernel.legacy_authority_plane(
             plane_id="legacy-plane:telegram-keyword-detector",
@@ -1553,14 +1550,16 @@ class KernelContractTests(unittest.TestCase):
             inventory_id="legacy-authority-inventory:telegram",
             owner_repo="spark-telegram-bot",
             surfaces=["telegram"],
-            planes=[converted, evidence_only],
+            planes=[removed_route_helper, evidence_only],
         )
 
         self.assertEqual(inventory["schema_version"], "legacy-authority-inventory-v1")
         self.assertEqual(inventory["summary"]["plane_count"], 2)
-        self.assertEqual(inventory["summary"]["canonical_consumer_count"], 1)
+        self.assertEqual(inventory["summary"]["removed_count"], 1)
+        self.assertEqual(inventory["summary"]["canonical_consumer_count"], 0)
         self.assertEqual(inventory["summary"]["evidence_adapter_count"], 1)
         self.assertEqual(inventory["summary"]["release_blocker_count"], 0)
+        self.assertEqual(inventory["summary"]["high_agency_risk_count"], 0)
         self.assertTrue(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
         validate_instance("legacy-authority-inventory-v1", inventory)
 
