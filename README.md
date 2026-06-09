@@ -34,6 +34,15 @@ This is still an early implementation slice, but the core now owns the Python sc
 
 The kernel can now emit and validate the records Spark needs before promoting a harness change:
 
+- `common-v1`: shared definitions used by the other schemas; not a standalone proof object.
+- `turn-intent-envelope-vnext`: records fresh-turn evidence, selected move, proposed actions, blocked routes, and freshness policy.
+- `authorization-decision-v1`: records allow, deny, interrupt, or degrade verdicts for a proposed action.
+- `tool-call-ledger-v1`: records the tool lifecycle and result proof; it is evidence, not permission.
+- `governor-consumer-verification-v1`: proves a consuming owner route verified the Governor decision, authorization, action, capability, tool, and ledger it expected.
+- `capability-module-v1`: declares tools, adapters, surfaces, and domain capabilities with owner, risk, inputs, outputs, and authority requirements.
+- `surface-spec-v1`: records surface-specific harness behavior and evidence requirements.
+- `autonomy-policy-v1`: records autonomy/risk policy as policy evidence; it is not a parallel router.
+- `harness-component-v1`: records editable harness components, owners, surfaces, risks, and rollback refs.
 - `resource-registry-v1`: declares prompts, tools, agents, specs, adapters, policies, memory stores, eval packs, and surface rules as versioned resources.
 - `governor-decision-v1`: binds one envelope, authorization set, optional ledgers, execution boundary, and reply contract into the canonical route outcome every Spark surface must consume.
 - `experience-index-v1`: points to traces, screenshots, tool ledgers, scorecards, diffs, and live proof without flooding the live model context.
@@ -41,6 +50,10 @@ The kernel can now emit and validate the records Spark needs before promoting a 
 - `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence for mutation.
 - `change-manifest-runner`: evaluates accepted manifests, readiness, live-proof requirements, rollback state, and protected-component approval before emitting a `self-evolution-run-v1` promotion decision. It records `not_ready` instead of mutating when evidence is missing.
 - `self-evolution-run-v1`: ties experience, target components, manifests, eval packs, commands, readiness, and promotion verdict into one auditable run.
+- `harness-run-v1`: records a complete run across surfaces, models, tools, metrics, artifacts, and verdicts.
+- `evaluation-pack-v1`: packages route, tool, startup, live, regression, latency, cost, and blind-jury cases.
+- `legacy-authority-plane-v1`: records one old authority plane and its disposition.
+- `legacy-authority-inventory-v1`: records the repo-wide inventory of old authority planes and release blockers.
 - `spark.telegram_live_qa_evidence_packet.v1`: records the 100-prompt Telegram live QA container with observed replies, side-effect checks, ledger/trace/screenshot refs, session evidence, verdicts, and release claim boundary.
 
 ## Quick Check
