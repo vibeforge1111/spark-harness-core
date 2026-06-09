@@ -612,6 +612,7 @@ export declare function verifyHarnessCoreGovernorExecutionAuthority(input: {
     governor_hmac_key?: string | null;
     governor_hmac_key_id?: string | null;
     require_signature?: boolean;
+    now?: string | Date | null;
 }): HarnessCoreGovernorConsumerVerification;
 export declare function verifyHarnessCoreGovernorToolAuthority(input: {
     governor_decision?: GovernorDecisionV1 | null;
@@ -624,6 +625,7 @@ export declare function verifyHarnessCoreGovernorToolAuthority(input: {
     governor_hmac_key?: string | null;
     governor_hmac_key_id?: string | null;
     require_signature?: boolean;
+    now?: string | Date | null;
 }): HarnessCoreGovernorConsumerVerification;
 export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     envelope: TurnIntentEnvelopeVNext;

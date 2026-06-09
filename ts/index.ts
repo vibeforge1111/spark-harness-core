@@ -1346,6 +1346,21 @@ function stringOrNull(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+function authorizationExpiryReasonCode(
+  authorization: AuthorizationDecisionV1,
+  now?: string | Date | null
+): string | null {
+  if (authorization.approval.status === 'expired') return 'authorization_approval_expired';
+  const expiresAt = stringOrNull(authorization.expires_at);
+  if (!expiresAt) return null;
+  const expiresMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresMs)) return 'authorization_expiry_invalid';
+  const nowMs = now instanceof Date ? now.getTime() : now ? Date.parse(now) : Date.now();
+  if (Number.isNaN(nowMs)) return 'authorization_expiry_invalid';
+  if (expiresMs <= nowMs) return 'authorization_expired';
+  return null;
+}
+
 export function boundHarnessCoreLedgerRow(input: {
   ledger: ToolCallLedgerV1;
   verdict: HarnessCoreGovernorConsumerVerification;
@@ -1389,6 +1404,7 @@ export function verifyHarnessCoreGovernorExecutionAuthority(input: {
   governor_hmac_key?: string | null;
   governor_hmac_key_id?: string | null;
   require_signature?: boolean;
+  now?: string | Date | null;
 }): HarnessCoreGovernorConsumerVerification {
   const governorDecision = input.governor_decision || null;
   if (!governorDecision) {
@@ -1430,6 +1446,9 @@ export function verifyHarnessCoreGovernorExecutionAuthority(input: {
   });
   if (!matchingAuthorization) {
     reasonCodes.push('governor_missing_matching_authorization');
+  } else {
+    const expiryReason = authorizationExpiryReasonCode(matchingAuthorization, input.now);
+    if (expiryReason) reasonCodes.push(expiryReason);
   }
 
   const hasMatchingProposedAction = matchingAuthorization
@@ -1487,6 +1506,7 @@ export function verifyHarnessCoreGovernorToolAuthority(input: {
   governor_hmac_key?: string | null;
   governor_hmac_key_id?: string | null;
   require_signature?: boolean;
+  now?: string | Date | null;
 }): HarnessCoreGovernorConsumerVerification {
   return verifyHarnessCoreGovernorExecutionAuthority({
     governor_decision: input.governor_decision,
@@ -1498,7 +1518,8 @@ export function verifyHarnessCoreGovernorToolAuthority(input: {
     require_pre_execution_ledger: input.require_pre_execution_ledger,
     governor_hmac_key: input.governor_hmac_key || null,
     governor_hmac_key_id: input.governor_hmac_key_id || null,
-    require_signature: input.require_signature
+    require_signature: input.require_signature,
+    now: input.now || null
   });
 }
 

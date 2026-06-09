@@ -252,6 +252,79 @@ class KernelContractTests(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             validate_instance("governor-decision-v1", invalid)
 
+    def test_governor_consumer_verifier_enforces_authorization_expiry(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write an explicit Telegram profile fact.",
+            args_path="telegram://turns/req-memory-expiry/actions/memory.write",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's favorite color.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+        )
+
+        def verify(decision: dict, *, now: str | None = None) -> dict:
+            return kernel.verify_governor_execution_authority(
+                decision,
+                expected_capability_id="capability:domain-chip-memory:memory.write",
+                expected_action_type="memory.write",
+                tool_name="domain-chip-memory.memory.write",
+                now=now,
+            )
+
+        expiring = clone(authorization)
+        expiring["expires_at"] = "2026-06-09T12:00:00Z"
+        decision = kernel.governor_decision(envelope, authorizations=[expiring], tool_ledgers=[ledger])
+
+        fresh = verify(decision, now="2026-06-09T11:00:00Z")
+        self.assertTrue(fresh["allowed"])
+        self.assertEqual(fresh["reason_codes"], [])
+
+        expired = verify(decision, now="2026-06-09T12:00:00Z")
+        self.assertFalse(expired["allowed"])
+        self.assertIn("authorization_expired", expired["reason_codes"])
+
+        past = clone(authorization)
+        past["expires_at"] = "2000-01-01T00:00:00Z"
+        past_decision = kernel.governor_decision(envelope, authorizations=[past], tool_ledgers=[ledger])
+        wall_clock_expired = verify(past_decision)
+        self.assertFalse(wall_clock_expired["allowed"])
+        self.assertIn("authorization_expired", wall_clock_expired["reason_codes"])
+
+        # Schema forbids verdict=allow with approval.status=expired, so the
+        # defense-in-depth branch is exercised on the helper directly.
+        approval_expired = clone(authorization)
+        approval_expired["approval"] = dict(approval_expired["approval"], status="expired")
+        self.assertEqual(
+            HarnessKernel._authorization_expiry_reason_code(approval_expired),
+            "authorization_approval_expired",
+        )
+        invalid_expiry = clone(authorization)
+        invalid_expiry["expires_at"] = "not-a-timestamp"
+        self.assertEqual(
+            HarnessKernel._authorization_expiry_reason_code(invalid_expiry),
+            "authorization_expiry_invalid",
+        )
+
     def test_governor_decision_signature_is_part_of_canonical_contract(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         envelope = kernel.create_envelope(

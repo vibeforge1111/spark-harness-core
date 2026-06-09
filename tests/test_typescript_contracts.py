@@ -513,6 +513,22 @@ class TypeScriptContractTests(unittest.TestCase):
               owner_system: 'spawner-ui',
               action_type: 'launch_mission'
             });
+            const expiringGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            expiringGovernorDecision.authorizations[0].expires_at = '2026-06-09T12:00:00Z';
+            const expiredAuthorizationVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: expiringGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T12:00:00Z'
+            });
+            const unexpiredAuthorizationVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: expiringGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:00:00Z'
+            });
             let copiedLedgerError = '';
             try {
               const copiedLedger = JSON.parse(JSON.stringify(authorizedGovernorDecision.tool_ledgers[0]));
@@ -596,6 +612,8 @@ class TypeScriptContractTests(unittest.TestCase):
               copiedGovernorConsumerVerification,
               unboundFreshGovernorDecision,
               unboundFreshVerification,
+              expiredAuthorizationVerification,
+              unexpiredAuthorizationVerification,
               copiedLedgerError,
               interruptedGovernorDecision,
               blockedFinalizeError,
@@ -712,6 +730,10 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["unboundFreshGovernorDecision"]["outcome"], "deny")
         self.assertEqual(payload["unboundFreshGovernorDecision"]["authorizations"][0]["verdict"], "deny")
         self.assertIn("fresh_user_intent_evidence_unbound", payload["unboundFreshVerification"]["reason_codes"])
+        self.assertFalse(payload["expiredAuthorizationVerification"]["allowed"])
+        self.assertIn("authorization_expired", payload["expiredAuthorizationVerification"]["reason_codes"])
+        self.assertTrue(payload["unexpiredAuthorizationVerification"]["allowed"])
+        self.assertEqual(payload["unexpiredAuthorizationVerification"]["reason_codes"], [])
         self.assertIn("authorization binding mismatch", payload["copiedLedgerError"])
         self.assertEqual(payload["interruptedGovernorDecision"]["outcome"], "interrupt")
         self.assertEqual(payload["interruptedGovernorDecision"]["authorizations"][0]["verdict"], "interrupt")

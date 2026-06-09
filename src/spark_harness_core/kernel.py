@@ -37,6 +37,19 @@ def _id(prefix: str) -> str:
     return f"{prefix}:{uuid4().hex[:24]}"
 
 
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
 def trace_ref(kind: str, summary: str, *, redaction_class: str = "metadata_only") -> dict[str, Any]:
     return {
         "id": _id(f"trace.{kind}"),
@@ -427,6 +440,7 @@ class HarnessKernel:
         governor_hmac_key: str | None = None,
         governor_hmac_key_id: str | None = None,
         require_signature: bool = False,
+        now: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(governor_decision, dict):
             return self._governor_consumer_verification(
@@ -473,7 +487,11 @@ class HarnessKernel:
         )
         if matching_authorization is None:
             reason_codes.append("governor_missing_matching_authorization")
-        elif not self._has_matching_governor_proposed_action(
+        else:
+            expiry_reason = self._authorization_expiry_reason_code(matching_authorization, now=now)
+            if expiry_reason:
+                reason_codes.append(expiry_reason)
+        if matching_authorization is not None and not self._has_matching_governor_proposed_action(
             decision,
             authorization=matching_authorization,
             expected_action_type=expected_action_type,
@@ -1388,6 +1406,28 @@ class HarnessKernel:
             if not str(authorization.get("decision_id") or ""):
                 continue
             return authorization
+        return None
+
+    @staticmethod
+    def _authorization_expiry_reason_code(
+        authorization: dict[str, Any],
+        *,
+        now: str | None = None,
+    ) -> str | None:
+        approval = authorization.get("approval") if isinstance(authorization.get("approval"), dict) else {}
+        if str(approval.get("status") or "") == "expired":
+            return "authorization_approval_expired"
+        expires_at = str(authorization.get("expires_at") or "").strip()
+        if not expires_at:
+            return None
+        expires = _parse_iso_timestamp(expires_at)
+        if expires is None:
+            return "authorization_expiry_invalid"
+        now_value = _parse_iso_timestamp(now) if now else datetime.now(UTC)
+        if now_value is None:
+            return "authorization_expiry_invalid"
+        if expires <= now_value:
+            return "authorization_expired"
         return None
 
     @staticmethod

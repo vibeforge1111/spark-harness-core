@@ -516,6 +516,22 @@ function stringOrNull(value) {
     const text = String(value).trim();
     return text.length > 0 ? text : null;
 }
+function authorizationExpiryReasonCode(authorization, now) {
+    if (authorization.approval.status === 'expired')
+        return 'authorization_approval_expired';
+    const expiresAt = stringOrNull(authorization.expires_at);
+    if (!expiresAt)
+        return null;
+    const expiresMs = Date.parse(expiresAt);
+    if (Number.isNaN(expiresMs))
+        return 'authorization_expiry_invalid';
+    const nowMs = now instanceof Date ? now.getTime() : now ? Date.parse(now) : Date.now();
+    if (Number.isNaN(nowMs))
+        return 'authorization_expiry_invalid';
+    if (expiresMs <= nowMs)
+        return 'authorization_expired';
+    return null;
+}
 export function boundHarnessCoreLedgerRow(input) {
     const summary = stringOrNull(input.ledger.result.summary) || stringOrNull(input.ledger.trace.summary);
     return {
@@ -579,6 +595,11 @@ export function verifyHarnessCoreGovernorExecutionAuthority(input) {
     });
     if (!matchingAuthorization) {
         reasonCodes.push('governor_missing_matching_authorization');
+    }
+    else {
+        const expiryReason = authorizationExpiryReasonCode(matchingAuthorization, input.now);
+        if (expiryReason)
+            reasonCodes.push(expiryReason);
     }
     const hasMatchingProposedAction = matchingAuthorization
         ? governorDecision.envelope.proposed_actions.some((action) => {
@@ -645,7 +666,8 @@ export function verifyHarnessCoreGovernorToolAuthority(input) {
         require_pre_execution_ledger: input.require_pre_execution_ledger,
         governor_hmac_key: input.governor_hmac_key || null,
         governor_hmac_key_id: input.governor_hmac_key_id || null,
-        require_signature: input.require_signature
+        require_signature: input.require_signature,
+        now: input.now || null
     });
 }
 export function createHarnessCoreAuthorizedGovernorDecision(input) {
