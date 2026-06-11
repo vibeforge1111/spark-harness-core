@@ -2,16 +2,27 @@ import { createHmac, randomUUID } from 'node:crypto';
 export function canonicalHarnessCoreJson(value) {
     if (value === undefined)
         return 'null';
+    if (typeof value === 'number' && !Number.isFinite(value))
+        throw new Error('canonical JSON numbers must be finite');
     if (value === null || typeof value !== 'object')
         return JSON.stringify(value) ?? 'null';
     if (Array.isArray(value))
         return `[${value.map((item) => canonicalHarnessCoreJson(item)).join(',')}]`;
     const entries = Object.entries(value)
         .filter(([, entryValue]) => entryValue !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right));
+        .sort(([left], [right]) => compareUtf16Strings(left, right));
     return `{${entries
         .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalHarnessCoreJson(entryValue)}`)
         .join(',')}}`;
+}
+function compareUtf16Strings(left, right) {
+    const length = Math.min(left.length, right.length);
+    for (let index = 0; index < length; index += 1) {
+        const diff = left.charCodeAt(index) - right.charCodeAt(index);
+        if (diff !== 0)
+            return diff;
+    }
+    return left.length - right.length;
 }
 export function unsignedHarnessCoreGovernorDecision(decision) {
     const { signature: _signature, ...unsigned } = decision;
