@@ -1,0 +1,18 @@
+{
+  "name": "degrade_missing_ledger",
+  "input": {
+    "case": "governed_action",
+    "confidence": 0.95,
+    "include_authorization": true,
+    "include_ledger": false
+  },
+  "expected": {
+    "governor_outcome": "degrade",
+    "verifier": {
+      "allowed": false,
+      "reason_codes": [
+        "governor_outcome_degrade"
+      ]
+    }
+  }
+}

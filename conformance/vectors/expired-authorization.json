@@ -1,0 +1,20 @@
+{
+  "name": "expired_authorization",
+  "input": {
+    "case": "governed_action",
+    "confidence": 0.95,
+    "include_authorization": true,
+    "include_ledger": true,
+    "authorization_expires_at": "2026-06-10T00:00:00Z",
+    "now": "2026-06-10T00:00:01Z"
+  },
+  "expected": {
+    "governor_outcome": "execute",
+    "verifier": {
+      "allowed": false,
+      "reason_codes": [
+        "authorization_expired"
+      ]
+    }
+  }
+}
