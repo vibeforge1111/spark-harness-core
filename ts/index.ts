@@ -1544,6 +1544,7 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
   reply_instruction?: string;
   now?: string;
 }): GovernorDecisionV1 {
+  const hasActionSelector = Boolean(input.action_id || input.capability_id);
   const action =
     input.envelope.proposed_actions.find((candidate) =>
       input.action_id
@@ -1551,7 +1552,7 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
         : input.capability_id
           ? candidate.capability_id === input.capability_id
           : true
-    ) || input.envelope.proposed_actions[0];
+    ) || (hasActionSelector ? undefined : input.envelope.proposed_actions[0]);
   if (!action) {
     return createHarnessCoreGovernorDecision({
       envelope: input.envelope,

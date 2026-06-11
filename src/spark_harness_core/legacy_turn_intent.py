@@ -590,9 +590,9 @@ def _vnext_envelope(
     policy_allowed: bool,
 ) -> dict[str, Any]:
     if not policy_allowed:
-        selected_move = "chat_explain"
-        proposed_actions: list[dict[str, Any]] = []
-        authority_state = "chat_only"
+        selected_move = "prepare_action"
+        proposed_actions = [action]
+        authority_state = "blocked"
     elif action["action_type"] == "read":
         selected_move = "read_current_state"
         proposed_actions = [action]
@@ -775,6 +775,7 @@ def authorize_vnext_tool_call(
         expected_capability_id=expected_capability_id,
         expected_action_type=expected_action_type,
     )
+    action_was_proposed = action is not None
     reasons: list[str] = []
     freshness = envelope.get("freshness") if isinstance(envelope.get("freshness"), dict) else {}
     if not freshness.get("fresh_user_intent_present"):
@@ -797,6 +798,15 @@ def authorize_vnext_tool_call(
     decision = kernel.authorize(envelope, action, approval_ref=approval_ref)
     if reasons:
         decision = _deny_decision(decision, tuple(reasons))
+    if not action_was_proposed:
+        return LegacyToolAuthorization(
+            "blocked",
+            tuple(str(reason) for reason in decision["reasons"]),
+            envelope,
+            action,
+            decision,
+            None,
+        )
     ledger = kernel.record_tool_call(
         envelope=envelope,
         action=action,

@@ -682,11 +682,12 @@ export function verifyHarnessCoreGovernorToolAuthority(input) {
     });
 }
 export function createHarnessCoreAuthorizedGovernorDecision(input) {
+    const hasActionSelector = Boolean(input.action_id || input.capability_id);
     const action = input.envelope.proposed_actions.find((candidate) => input.action_id
         ? candidate.action_id === input.action_id
         : input.capability_id
             ? candidate.capability_id === input.capability_id
-            : true) || input.envelope.proposed_actions[0];
+            : true) || (hasActionSelector ? undefined : input.envelope.proposed_actions[0]);
     if (!action) {
         return createHarnessCoreGovernorDecision({
             envelope: input.envelope,

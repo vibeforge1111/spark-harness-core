@@ -630,6 +630,53 @@ class KernelContractTests(unittest.TestCase):
                 summary="Copied ledger must not finalize as execution proof.",
             )
 
+    def test_authorize_denies_action_not_in_envelope(self) -> None:
+        kernel = HarnessKernel(surface="cli")
+        proposed = kernel.proposed_action(
+            capability_id="capability:schema-validation",
+            action_type="run_command",
+            risk_tier="low",
+            summary="Run local schema validation.",
+            args_path="experience/private/validate-args.json",
+            requires_confirmation=False,
+        )
+        unproposed = kernel.proposed_action(
+            capability_id="capability:file-edit",
+            action_type="edit_file",
+            risk_tier="low",
+            summary="Edit a file that was never proposed by the envelope.",
+            args_path="experience/private/edit-args.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked for schema validation.",
+            raw_turn_summary="Run schema validation.",
+            proposed_actions=[proposed],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.94,
+        )
+
+        decision = kernel.authorize(envelope, unproposed)
+
+        self.assertEqual(decision["verdict"], "deny")
+        self.assertTrue(any("action_not_in_envelope" in reason for reason in decision["reasons"]))
+
+        forged = clone(decision)
+        forged["verdict"] = "allow"
+        forged["reasons"] = ["forged_allow"]
+        with self.assertRaisesRegex(ValueError, "authorization does not reference a proposed action"):
+            kernel.record_tool_call(
+                envelope=envelope,
+                action=unproposed,
+                authorization=forged,
+                tool_name="spark.file.edit",
+                status="success",
+                output_path="experience/private/edit-output.txt",
+                summary="This unproposed action must not execute.",
+            )
+
     def test_tool_ledger_cannot_record_execution_without_allow_authorization(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         action = kernel.proposed_action(

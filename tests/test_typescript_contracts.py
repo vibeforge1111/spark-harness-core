@@ -741,6 +741,48 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["interruptedNotStartedLedger"]["result"]["status"], "not_started")
         self.assertEqual(payload["interruptedNotStartedLedger"]["lifecycle"][-1]["verdict"], "skipped")
 
+    def test_ts_authorized_governor_decision_rejects_missing_action_selector(self) -> None:
+        script = textwrap.dedent(
+            """
+            const core = require('./ts-dist/index.js');
+            const envelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'spawner',
+              ownerSystem: 'spawner-ui',
+              toolName: 'spawner.dispatch',
+              mutationClass: 'launches_mission',
+              source: 'execution-panel',
+              reason: 'User started execution from Spawner.',
+              requestId: 'dispatch-missing-action-selector-test',
+              target: 'mission-missing-action-selector-test'
+            });
+            const decision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              action_id: 'action:not-in-envelope'
+            });
+            const verification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: decision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            console.log(JSON.stringify({ decision, verification }));
+            """
+        )
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["decision"]["outcome"], "degrade")
+        self.assertEqual(payload["decision"]["authorizations"], [])
+        self.assertEqual(payload["decision"]["tool_ledgers"], [])
+        self.assertFalse(payload["verification"]["allowed"])
+        self.assertIn("governor_missing_matching_authorization", payload["verification"]["reason_codes"])
+
     def test_esm_package_face_exports_action_envelope_helper(self) -> None:
         script = textwrap.dedent(
             """
