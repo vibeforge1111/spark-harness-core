@@ -1,0 +1,19 @@
+{
+  "name": "interrupt_confirmation",
+  "input": {
+    "case": "governed_action",
+    "confidence": 0.95,
+    "requires_confirmation": true,
+    "include_authorization": true,
+    "include_ledger": true
+  },
+  "expected": {
+    "governor_outcome": "interrupt",
+    "verifier": {
+      "allowed": false,
+      "reason_codes": [
+        "governor_outcome_interrupt"
+      ]
+    }
+  }
+}
