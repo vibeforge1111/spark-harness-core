@@ -601,12 +601,52 @@ function boundHarnessCoreLedgerRow(input) {
     };
 }
 exports.boundLedgerRow = boundHarnessCoreLedgerRow;
+function isHarnessCoreRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function isHarnessCoreGovernorDecisionVerifierShape(value) {
+    if (!isHarnessCoreRecord(value))
+        return false;
+    if (value.schema_version !== 'governor-decision-v1')
+        return false;
+    if (typeof value.turn_id !== 'string' || value.turn_id.length === 0)
+        return false;
+    if (typeof value.outcome !== 'string' || value.outcome.length === 0)
+        return false;
+    if (!isHarnessCoreRecord(value.execution_boundary))
+        return false;
+    if (typeof value.execution_boundary.action_authorized !== 'boolean')
+        return false;
+    if (!isHarnessCoreRecord(value.envelope))
+        return false;
+    if (!Array.isArray(value.envelope.proposed_actions))
+        return false;
+    if (!isHarnessCoreRecord(value.envelope.freshness))
+        return false;
+    if (!Array.isArray(value.envelope.evidence))
+        return false;
+    if (!Array.isArray(value.authorizations))
+        return false;
+    if (!Array.isArray(value.tool_ledgers))
+        return false;
+    return true;
+}
 function verifyHarnessCoreGovernorExecutionAuthority(input) {
     const governorDecision = input.governor_decision || null;
     if (!governorDecision) {
         return createGovernorConsumerVerification({
             allowed: false,
             reasonCodes: ['missing_governor_decision'],
+            governorDecision: null,
+            expectedCapabilityId: input.expected_capability_id,
+            expectedActionType: input.expected_action_type || null,
+            toolName: input.tool_name || null
+        });
+    }
+    if (!isHarnessCoreGovernorDecisionVerifierShape(governorDecision)) {
+        return createGovernorConsumerVerification({
+            allowed: false,
+            reasonCodes: ['invalid_governor_decision'],
             governorDecision: null,
             expectedCapabilityId: input.expected_capability_id,
             expectedActionType: input.expected_action_type || null,
