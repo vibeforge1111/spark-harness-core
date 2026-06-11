@@ -1744,6 +1744,80 @@ export function finalizeHarnessCoreToolCallLedger(input: {
   };
 }
 
+export function repairHarnessCoreStrandedToolCallLedger(input: {
+  ledger: ToolCallLedgerV1;
+  now?: string;
+  stranded_after_seconds?: number;
+  output_path_or_uri?: string;
+  summary?: string;
+}): ToolCallLedgerV1 | null {
+  if (input.ledger.result.status !== 'not_started') return null;
+  const createdMs = Date.parse(input.ledger.created_at);
+  const nowMs = input.now ? Date.parse(input.now) : Date.now();
+  if (Number.isNaN(createdMs) || Number.isNaN(nowMs)) return null;
+  const strandedAfterSeconds = input.stranded_after_seconds ?? 3600;
+  if ((nowMs - createdMs) / 1000 < strandedAfterSeconds) return null;
+
+  const summary =
+    input.summary || `failure(stranded): not_started ledger exceeded ${strandedAfterSeconds}s without finalization.`;
+  const outputPath = input.output_path_or_uri || `harness-core://repairs/${input.ledger.ledger_id}/stranded`;
+  const executeStage: ToolCallLedgerV1['lifecycle'][number] = {
+    stage: 'execute',
+    at: input.now || new Date(nowMs).toISOString(),
+    verdict: 'failed',
+    summary
+  };
+  const lifecycle = [...input.ledger.lifecycle];
+  if (lifecycle.length > 0 && lifecycle[lifecycle.length - 1].stage === 'execute') {
+    lifecycle[lifecycle.length - 1] = executeStage;
+  } else {
+    lifecycle.push(executeStage);
+  }
+
+  return {
+    ...input.ledger,
+    lifecycle,
+    result: {
+      status: 'failure',
+      summary,
+      sanitized_output_ref: createHarnessCoreArtifactRef({
+        id: `${input.ledger.ledger_id}:stranded:output`,
+        kind: 'tool_output',
+        path_or_uri: outputPath,
+        summary,
+        redaction_class: 'metadata_only'
+      }),
+      error_ref: createHarnessCoreArtifactRef({
+        id: `${input.ledger.ledger_id}:stranded:error`,
+        kind: 'tool_error',
+        path_or_uri: `${outputPath}/error`,
+        summary: 'Stranded ledger repair provenance.',
+        redaction_class: 'metadata_only'
+      })
+    },
+    trace: createHarnessCoreTraceRef({
+      id: `${input.ledger.ledger_id}:stranded:repair`,
+      summary: `Stranded ledger repair for ${input.ledger.tool_name}.`
+    })
+  };
+}
+
+export function repairHarnessCoreStrandedToolCallLedgers(input: {
+  ledgers: ToolCallLedgerV1[];
+  now?: string;
+  stranded_after_seconds?: number;
+}): ToolCallLedgerV1[] {
+  return input.ledgers
+    .map((ledger) =>
+      repairHarnessCoreStrandedToolCallLedger({
+        ledger,
+        now: input.now,
+        stranded_after_seconds: input.stranded_after_seconds
+      })
+    )
+    .filter((ledger): ledger is ToolCallLedgerV1 => ledger !== null);
+}
+
 export function createHarnessCoreReadinessScore(input: {
   id: string;
   target_kind: ReadinessScoreV1['target']['kind'];

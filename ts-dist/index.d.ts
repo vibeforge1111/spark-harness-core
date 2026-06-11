@@ -648,6 +648,18 @@ export declare function finalizeHarnessCoreToolCallLedger(input: {
     rollback_ref?: HarnessCoreArtifactRef;
     now?: string;
 }): ToolCallLedgerV1;
+export declare function repairHarnessCoreStrandedToolCallLedger(input: {
+    ledger: ToolCallLedgerV1;
+    now?: string;
+    stranded_after_seconds?: number;
+    output_path_or_uri?: string;
+    summary?: string;
+}): ToolCallLedgerV1 | null;
+export declare function repairHarnessCoreStrandedToolCallLedgers(input: {
+    ledgers: ToolCallLedgerV1[];
+    now?: string;
+    stranded_after_seconds?: number;
+}): ToolCallLedgerV1[];
 export declare function createHarnessCoreReadinessScore(input: {
     id: string;
     target_kind: ReadinessScoreV1['target']['kind'];
