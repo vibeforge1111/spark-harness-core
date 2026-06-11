@@ -896,6 +896,58 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "schedule")
         self.assertTrue(payload["hasFinalizer"])
 
+    def test_typescript_verifier_denies_malformed_input_without_throwing(self) -> None:
+        script = textwrap.dedent(
+            """
+            const core = require('./ts-dist/index.js');
+            const cases = [
+              null,
+              {},
+              { schema_version: 'governor-decision-v1', outcome: 'execute' },
+              {
+                schema_version: 'governor-decision-v1',
+                turn_id: 'turn:malformed',
+                outcome: 'execute',
+                execution_boundary: { action_authorized: true },
+                envelope: {},
+                authorizations: [],
+                tool_ledgers: []
+              },
+              {
+                schema_version: 'governor-decision-v1',
+                turn_id: 'turn:malformed',
+                outcome: 'execute',
+                execution_boundary: { action_authorized: true },
+                envelope: { proposed_actions: [], freshness: {}, evidence: [] },
+                authorizations: {},
+                tool_ledgers: []
+              }
+            ];
+            const results = cases.map((governor_decision) =>
+              core.verifyHarnessCoreGovernorExecutionAuthority({
+                governor_decision,
+                expected_capability_id: 'capability:test',
+                expected_action_type: 'run_command',
+                tool_name: 'test.tool'
+              })
+            );
+            console.log(JSON.stringify(results));
+            """
+        )
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload), 5)
+        self.assertFalse(any(item["allowed"] for item in payload))
+        self.assertIn("missing_governor_decision", payload[0]["reason_codes"])
+        for item in payload[1:]:
+            self.assertIn("invalid_governor_decision", item["reason_codes"])
+
 
 if __name__ == "__main__":
     unittest.main()
