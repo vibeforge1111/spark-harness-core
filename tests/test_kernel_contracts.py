@@ -677,6 +677,49 @@ class KernelContractTests(unittest.TestCase):
                 summary="This unproposed action must not execute.",
             )
 
+    def test_kernel_denial_records_refusal_ledger_before_consumer_exception_is_swallowed(self) -> None:
+        kernel = HarnessKernel(surface="cli")
+        action = kernel.proposed_action(
+            capability_id="capability:schema-validation",
+            action_type="run_command",
+            risk_tier="low",
+            summary="Run local schema validation.",
+            args_path="experience/private/validate-args.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="prepare_action",
+            intent_summary="Agent prepared schema validation without executable user authority.",
+            raw_turn_summary="Prepare schema validation.",
+            proposed_actions=[action],
+            authority_state="prepare_allowed",
+            risk_tier="low",
+            confidence=0.9,
+        )
+        authorization = kernel.authorize(envelope, action)
+
+        self.assertEqual(authorization["verdict"], "deny")
+        refusal_ledger = kernel.record_refusal(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="spark-harness-core.validate",
+            output_path="experience/private/refusals/schema-validation.json",
+        )
+        try:
+            raise RuntimeError("consumer failed after the kernel refusal")
+        except RuntimeError:
+            pass
+
+        self.assertEqual(refusal_ledger["authorization"]["verdict"], "deny")
+        self.assertEqual(refusal_ledger["result"]["status"], "not_started")
+        self.assertEqual(refusal_ledger["lifecycle"][1]["stage"], "authorize")
+        self.assertEqual(refusal_ledger["lifecycle"][1]["verdict"], "failed")
+        self.assertEqual(refusal_ledger["lifecycle"][2]["stage"], "execute")
+        self.assertEqual(refusal_ledger["lifecycle"][2]["verdict"], "skipped")
+        self.assertIn("Tool call refused by Harness Core authorization", refusal_ledger["result"]["summary"])
+        validate_instance("tool-call-ledger-v1", refusal_ledger)
+
     def test_tool_ledger_cannot_record_execution_without_allow_authorization(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         action = kernel.proposed_action(
@@ -1065,6 +1108,11 @@ class KernelContractTests(unittest.TestCase):
         assert result.authorization_decision is not None
         self.assertEqual(result.authorization_decision["verdict"], "deny")
         self.assertFalse(result.authorization_decision["restrictions"]["write_allowed"])
+        assert result.tool_call_ledger is not None
+        self.assertEqual(result.tool_call_ledger["authorization"]["verdict"], "deny")
+        self.assertEqual(result.tool_call_ledger["result"]["status"], "not_started")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][2]["stage"], "execute")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][2]["verdict"], "skipped")
 
         kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
         action = envelope["proposed_actions"][0]
