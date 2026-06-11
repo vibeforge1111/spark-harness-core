@@ -637,6 +637,7 @@ export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     reply_style?: GovernorDecisionV1['reply_contract']['style'];
     reply_instruction?: string;
     now?: string;
+    idempotency_key?: string;
 }): GovernorDecisionV1;
 export declare function finalizeHarnessCoreToolCallLedger(input: {
     ledger: ToolCallLedgerV1;
@@ -647,6 +648,7 @@ export declare function finalizeHarnessCoreToolCallLedger(input: {
     error_ref?: HarnessCoreArtifactRef;
     rollback_ref?: HarnessCoreArtifactRef;
     now?: string;
+    idempotency_key?: string;
 }): ToolCallLedgerV1;
 export declare function repairHarnessCoreStrandedToolCallLedger(input: {
     ledger: ToolCallLedgerV1;

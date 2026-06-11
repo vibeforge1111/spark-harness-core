@@ -586,6 +586,41 @@ class TypeScriptContractTests(unittest.TestCase):
               now: '2026-06-10T02:00:01.000Z',
               stranded_after_seconds: 3600
             });
+            let refinalizeTerminalError = '';
+            try {
+              core.finalizeHarnessCoreToolCallLedger({
+                ledger: finalizedAuthorizedLedger,
+                status: 'failure',
+                summary: 'A retry must not rewrite the evidence trail.',
+                output_path_or_uri: 'spawner://missions/dispatch-vnext-test/failed'
+              });
+            } catch (error) {
+              refinalizeTerminalError = String(error && error.message || error);
+            }
+            const idempotentGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              idempotency_key: 'spawner-dispatch:idempotent-record'
+            });
+            const idempotentRetryGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              idempotency_key: 'spawner-dispatch:idempotent-record'
+            });
+            const idempotentFinalLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: idempotentGovernorDecision.tool_ledgers[0],
+              status: 'success',
+              summary: 'Spawner dispatch completed once.',
+              output_path_or_uri: 'spawner://missions/idempotent/result',
+              idempotency_key: 'spawner-dispatch:idempotent-final'
+            });
+            const idempotentRetryFinalLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: idempotentFinalLedger,
+              status: 'success',
+              summary: 'Spawner dispatch completed once.',
+              output_path_or_uri: 'spawner://missions/idempotent/result',
+              idempotency_key: 'spawner-dispatch:idempotent-final'
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -633,7 +668,12 @@ class TypeScriptContractTests(unittest.TestCase):
               blockedFinalizeError,
               interruptedNotStartedLedger,
               repairedStrandedLedger,
-              repairedSweep
+              repairedSweep,
+              refinalizeTerminalError,
+              idempotentGovernorDecision,
+              idempotentRetryGovernorDecision,
+              idempotentFinalLedger,
+              idempotentRetryFinalLedger
             }));
             """
         )
@@ -766,6 +806,16 @@ class TypeScriptContractTests(unittest.TestCase):
             payload["repairedSweep"][0]["ledger_id"],
             payload["repairedStrandedLedger"]["ledger_id"],
         )
+        self.assertIn("terminal tool-call ledger", payload["refinalizeTerminalError"])
+        self.assertEqual(
+            payload["idempotentRetryGovernorDecision"]["tool_ledgers"][0]["ledger_id"],
+            payload["idempotentGovernorDecision"]["tool_ledgers"][0]["ledger_id"],
+        )
+        self.assertEqual(
+            payload["idempotentRetryGovernorDecision"]["tool_ledgers"][0]["trace"]["id"],
+            payload["idempotentGovernorDecision"]["tool_ledgers"][0]["trace"]["id"],
+        )
+        self.assertEqual(payload["idempotentFinalLedger"], payload["idempotentRetryFinalLedger"])
 
     def test_ts_authorized_governor_decision_rejects_missing_action_selector(self) -> None:
         script = textwrap.dedent(
