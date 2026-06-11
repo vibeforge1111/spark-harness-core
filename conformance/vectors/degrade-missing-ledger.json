@@ -7,7 +7,7 @@
     "include_ledger": false
   },
   "expected": {
-    "governor_outcome": "execute",
+    "governor_outcome": "degrade",
     "verifier": {
       "allowed": false,
       "reason_codes": [
