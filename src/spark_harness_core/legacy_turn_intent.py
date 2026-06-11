@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from spark_harness_core.kernel import HarnessKernel, artifact_ref, evidence_ref, trace_ref
+from spark_harness_core.kernel import HarnessKernel, evidence_ref, trace_ref
 from spark_harness_core.schemas import validate_instance
 
 
