@@ -683,19 +683,26 @@ def authorize_legacy_tool_call(
     decision = kernel.authorize(vnext, action, approval_ref=approval_ref)
     if reasons:
         decision = _deny_decision(decision, reasons)
-    ledger = kernel.record_tool_call(
-        envelope=vnext,
-        action=action,
-        authorization=decision,
-        tool_name=tool_name,
-        status="not_started",
-        output_path=f"builder://turns/{_safe_id('turn', envelope.turn_id)}/tool-ledgers/{_safe_id('tool', tool_name)}",
-        summary=(
-            "Tool call authorized and awaiting execution."
-            if decision["verdict"] == "allow"
-            else "Tool call blocked by Harness Core authorization."
-        ),
-    )
+    output_path = f"builder://turns/{_safe_id('turn', envelope.turn_id)}/tool-ledgers/{_safe_id('tool', tool_name)}"
+    if decision["verdict"] == "allow":
+        ledger = kernel.record_tool_call(
+            envelope=vnext,
+            action=action,
+            authorization=decision,
+            tool_name=tool_name,
+            status="not_started",
+            output_path=output_path,
+            summary="Tool call authorized and awaiting execution.",
+        )
+    else:
+        ledger = kernel.record_refusal(
+            envelope=vnext,
+            action=action,
+            authorization=decision,
+            tool_name=tool_name,
+            output_path=output_path,
+            summary="Tool call blocked by Harness Core authorization.",
+        )
 
     if decision["verdict"] == "allow":
         return LegacyToolAuthorization("allowed", (), vnext, action, decision, ledger)
@@ -807,22 +814,29 @@ def authorize_vnext_tool_call(
             decision,
             None,
         )
-    ledger = kernel.record_tool_call(
-        envelope=envelope,
-        action=action,
-        authorization=decision,
-        tool_name=ledger_tool_name,
-        status="not_started",
-        output_path=(
-            f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}"
-            f"/tool-ledgers/{_safe_id('tool', ledger_tool_name)}"
-        ),
-        summary=(
-            "Tool call authorized and awaiting execution."
-            if decision["verdict"] == "allow"
-            else "Tool call blocked by Harness Core authorization."
-        ),
+    output_path = (
+        f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}"
+        f"/tool-ledgers/{_safe_id('tool', ledger_tool_name)}"
     )
+    if decision["verdict"] == "allow":
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=decision,
+            tool_name=ledger_tool_name,
+            status="not_started",
+            output_path=output_path,
+            summary="Tool call authorized and awaiting execution.",
+        )
+    else:
+        ledger = kernel.record_refusal(
+            envelope=envelope,
+            action=action,
+            authorization=decision,
+            tool_name=ledger_tool_name,
+            output_path=output_path,
+            summary="Tool call blocked by Harness Core authorization.",
+        )
     if decision["verdict"] == "allow":
         return LegacyToolAuthorization("allowed", (), envelope, action, decision, ledger)
     return LegacyToolAuthorization(

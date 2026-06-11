@@ -577,6 +577,30 @@ class HarnessKernel:
         }
         return validate_instance("tool-call-ledger-v1", ledger)
 
+    def record_refusal(
+        self,
+        *,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+        tool_name: str,
+        output_path: str,
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        verdict = str(authorization.get("verdict") or "")
+        if verdict == "allow":
+            raise ValueError("record_refusal requires a non-allow authorization")
+        reason_text = ", ".join(str(reason) for reason in authorization.get("reasons") or [])
+        return self.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name=tool_name,
+            status="not_started",
+            output_path=output_path,
+            summary=summary or f"Tool call refused by Harness Core authorization: {reason_text or verdict}.",
+        )
+
     def finalize_tool_call_ledger(
         self,
         ledger: dict[str, Any],
