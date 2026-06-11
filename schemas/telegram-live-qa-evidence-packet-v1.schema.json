@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/telegram-live-qa-evidence-packet-v1.schema.json",
+  "title": "Spark Telegram Live QA Evidence Packet V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "run_id",
+    "title",
+    "catalog",
+    "selection",
+    "authority_claim_boundary",
+    "required_session_evidence",
+    "verdict_values",
+    "cases",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": { "const": "spark.telegram_live_qa_evidence_packet.v1" },
+    "generated_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "run_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "title": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "catalog": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite", "include_risky", "case_count", "risk_counts"],
+      "properties": {
+        "suite": { "type": ["string", "null"] },
+        "include_risky": { "type": "boolean" },
+        "case_count": { "type": "integer", "minimum": 0 },
+        "risk_counts": { "$ref": "#/$defs/riskCounts" }
+      }
+    },
+    "authority_claim_boundary": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+    "required_session_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "tester",
+        "bot_runtime_commit",
+        "harness_core_commit",
+        "spark_os_compile_ref",
+        "spark_live_status_ref",
+        "spark_verify_provenance_ref",
+        "telegram_chat_evidence_ref",
+        "overall_verdict",
+        "follow_up_commits",
+        "pr_links",
+        "remaining_risks"
+      ],
+      "properties": {
+        "profile": { "type": ["string", "null"] },
+        "tester": { "type": ["string", "null"] },
+        "bot_runtime_commit": { "type": ["string", "null"] },
+        "harness_core_commit": { "type": ["string", "null"] },
+        "spark_os_compile_ref": { "type": ["string", "null"] },
+        "spark_live_status_ref": { "type": ["string", "null"] },
+        "spark_verify_provenance_ref": { "type": ["string", "null"] },
+        "telegram_chat_evidence_ref": { "type": ["string", "null"] },
+        "overall_verdict": { "$ref": "#/$defs/verdict" },
+        "follow_up_commits": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        },
+        "pr_links": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        },
+        "remaining_risks": {
+          "type": "array",
+          "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "verdict_values": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verdict" },
+      "minItems": 5,
+      "uniqueItems": true
+    },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/liveQaCase" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail", "blocked", "needs_retest", "untested"],
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "needs_retest": { "type": "integer", "minimum": 0 },
+        "untested": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "risk": {
+      "type": "string",
+      "enum": ["safe", "mission", "writes_files", "external"]
+    },
+    "riskCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["safe", "mission", "writes_files", "external"],
+      "properties": {
+        "safe": { "type": "integer", "minimum": 0 },
+        "mission": { "type": "integer", "minimum": 0 },
+        "writes_files": { "type": "integer", "minimum": 0 },
+        "external": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked", "needs-retest", "untested"]
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "stringRefs": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+    },
+    "liveQaCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "id",
+        "suite",
+        "risk",
+        "expected_route",
+        "expected_outcome",
+        "verdict",
+        "actual_route",
+        "actual_outcome",
+        "observed_turns",
+        "side_effects",
+        "evidence_refs",
+        "issue",
+        "fix_commit",
+        "retest_required"
+      ],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "suite": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "risk": { "$ref": "#/$defs/risk" },
+        "expected_route": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "expected_outcome": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "actual_route": { "$ref": "#/$defs/nullableString" },
+        "actual_outcome": { "$ref": "#/$defs/nullableString" },
+        "observed_turns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["turn_index", "prompt", "reply", "reply_timestamp"],
+            "properties": {
+              "turn_index": { "type": "integer", "minimum": 1 },
+              "prompt": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+              "reply": { "$ref": "#/$defs/nullableString" },
+              "reply_timestamp": { "$ref": "#/$defs/nullableString" }
+            }
+          }
+        },
+        "side_effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "files_changed",
+            "memory_written",
+            "mission_started",
+            "external_network_called",
+            "pr_opened",
+            "publish_or_deploy_started",
+            "schedule_changed",
+            "tool_or_browser_used"
+          ],
+          "properties": {
+            "files_changed": { "type": ["boolean", "null"] },
+            "memory_written": { "type": ["boolean", "null"] },
+            "mission_started": { "type": ["boolean", "null"] },
+            "external_network_called": { "type": ["boolean", "null"] },
+            "pr_opened": { "type": ["boolean", "null"] },
+            "publish_or_deploy_started": { "type": ["boolean", "null"] },
+            "schedule_changed": { "type": ["boolean", "null"] },
+            "tool_or_browser_used": { "type": ["boolean", "null"] }
+          }
+        },
+        "evidence_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authorization_ledgers", "tool_ledgers", "traces", "runtime_status", "screenshots", "commits", "prs"],
+          "properties": {
+            "authorization_ledgers": { "$ref": "#/$defs/stringRefs" },
+            "tool_ledgers": { "$ref": "#/$defs/stringRefs" },
+            "traces": { "$ref": "#/$defs/stringRefs" },
+            "runtime_status": { "$ref": "#/$defs/stringRefs" },
+            "screenshots": { "$ref": "#/$defs/stringRefs" },
+            "commits": { "$ref": "#/$defs/stringRefs" },
+            "prs": { "$ref": "#/$defs/stringRefs" }
+          }
+        },
+        "issue": { "$ref": "#/$defs/nullableString" },
+        "fix_commit": { "$ref": "#/$defs/nullableString" },
+        "retest_required": { "type": "boolean" }
+      }
+    }
+  }
+}

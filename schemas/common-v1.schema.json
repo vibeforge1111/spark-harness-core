@@ -145,6 +145,7 @@
             "route_candidate",
             "tool_result",
             "runtime_state",
+            "authority_binding_ref",
             "test_result",
             "human_confirmation",
             "surface_signal",

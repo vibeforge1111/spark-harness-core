@@ -6,7 +6,27 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from spark_harness_core.schemas import validate_instance
+from spark_harness_core.governor_signature import governor_decision_signature_reason_codes
+from spark_harness_core.schemas import validate_instance, validate_schema_ref
+
+
+LEDGER_ROW_COLUMNS = (
+    "turn_id",
+    "action_id",
+    "capability_id",
+    "authorization_decision_id",
+    "ledger_id",
+    "tool_name",
+    "owner_system",
+    "mutation_class",
+    "outcome",
+    "status",
+    "surface",
+    "request_id",
+    "trace_ref",
+    "summary",
+    "ledger_json",
+)
 
 
 def _now() -> str:
@@ -15,6 +35,19 @@ def _now() -> str:
 
 def _id(prefix: str) -> str:
     return f"{prefix}:{uuid4().hex[:24]}"
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def trace_ref(kind: str, summary: str, *, redaction_class: str = "metadata_only") -> dict[str, Any]:
@@ -58,6 +91,51 @@ def evidence_ref(
     }
 
 
+def _string_or_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def bound_ledger_row(
+    ledger: dict[str, Any],
+    verdict: dict[str, Any],
+    *,
+    owner_system: str | None = None,
+    mutation_class: str | None = None,
+    surface: str | None = None,
+    request_id: str | None = None,
+    trace_ref: str | None = None,
+) -> dict[str, Any]:
+    """Flatten a validated ledger/verifier pair into the shared store row shape."""
+
+    validated_ledger = validate_instance("tool-call-ledger-v1", ledger)
+    validated_verdict = validate_instance("governor-consumer-verification-v1", verdict)
+    authorization = validated_ledger.get("authorization") if isinstance(validated_ledger.get("authorization"), dict) else {}
+    result = validated_ledger.get("result") if isinstance(validated_ledger.get("result"), dict) else {}
+    trace = validated_ledger.get("trace") if isinstance(validated_ledger.get("trace"), dict) else {}
+    summary = _string_or_none(result.get("summary")) or _string_or_none(trace.get("summary"))
+    ledger_trace_ref = _string_or_none(trace.get("id"))
+    row = {
+        "turn_id": _string_or_none(validated_ledger.get("turn_id")),
+        "action_id": _string_or_none(validated_ledger.get("action_id")),
+        "capability_id": _string_or_none(validated_ledger.get("capability_id")),
+        "authorization_decision_id": _string_or_none(validated_verdict.get("authorization_decision_id"))
+        or _string_or_none(authorization.get("decision_id")),
+        "ledger_id": _string_or_none(validated_ledger.get("ledger_id")),
+        "tool_name": _string_or_none(validated_ledger.get("tool_name")),
+        "owner_system": _string_or_none(owner_system),
+        "mutation_class": _string_or_none(mutation_class),
+        "outcome": _string_or_none(validated_verdict.get("outcome")),
+        "status": _string_or_none(result.get("status")),
+        "surface": _string_or_none(surface),
+        "request_id": _string_or_none(request_id),
+        "trace_ref": _string_or_none(trace_ref) or ledger_trace_ref,
+        "summary": summary,
+        "ledger_json": deepcopy(validated_ledger),
+    }
+    return {key: row[key] for key in LEDGER_ROW_COLUMNS}
+
+
 _RISK_ORDER = {
     "none": 0,
     "read": 1,
@@ -79,6 +157,7 @@ READINESS_CATEGORIES = (
 )
 
 PROTECTED_EVOLUTION_COMPONENTS = frozenset({"verifier", "benchmark", "model_config", "authority_policy"})
+MUTATING_EVOLUTION_MODES = frozenset({"sandbox", "promote", "rollback"})
 PROMOTION_VERDICTS = frozenset({"promote_private", "promote_release_candidate"})
 READINESS_STATUS_RANK = {
     "blocked": 0,
@@ -86,6 +165,13 @@ READINESS_STATUS_RANK = {
     "release_candidate": 2,
     "public_ready": 3,
 }
+PROPOSED_ACTION_SCHEMA_REF = (
+    "https://spark.local/schemas/turn-intent-envelope-vnext.schema.json#/properties/proposed_actions/items"
+)
+RESOURCE_SCHEMA_REF = "https://spark.local/schemas/resource-registry-v1.schema.json#/properties/resources/items"
+EXPERIENCE_ENTRY_SCHEMA_REF = "https://spark.local/schemas/experience-index-v1.schema.json#/properties/entries/items"
+EVALUATION_CASE_SCHEMA_REF = "https://spark.local/schemas/evaluation-pack-v1.schema.json#/properties/cases/items"
+METRIC_SCHEMA_REF = "https://spark.local/schemas/common-v1.schema.json#/$defs/metric"
 NETWORK_ACTION_TYPES = frozenset(
     {
         "run_command",
@@ -100,6 +186,7 @@ NETWORK_ACTION_TYPES = frozenset(
 )
 WRITE_ACTION_TYPES = frozenset(
     {
+        "memory.write",
         "write_memory",
         "edit_file",
         "launch_mission",
@@ -112,6 +199,27 @@ WRITE_ACTION_TYPES = frozenset(
         "computer_action",
     }
 )
+LIVE_QA_RISKS = ("safe", "mission", "writes_files", "external")
+LIVE_QA_VERDICTS = ("pass", "fail", "blocked", "needs-retest", "untested")
+EXECUTED_TOOL_STATUSES = frozenset({"success", "failure", "partial", "rolled_back"})
+LEGACY_PLANE_DISPOSITIONS = (
+    "removed",
+    "quarantined",
+    "evidence_adapter",
+    "canonical_consumer",
+    "release_blocker",
+)
+LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS = (
+    "can_execute",
+    "can_mutate_state",
+    "can_route_turns",
+    "can_write_memory",
+    "can_launch_mission",
+    "can_call_network",
+    "can_publish",
+    "can_schedule",
+)
+FRESH_USER_INTENT_REQUIRED_MOVES = frozenset({"read_current_state", "confirm_action", "execute_action"})
 
 
 @dataclass(frozen=True)
@@ -147,6 +255,7 @@ class HarnessKernel:
                 confidence=confidence or 0.7,
             )
         ]
+        fresh_user_intent_ref = self._fresh_user_intent_ref_from_evidence(evidence_items)
         actions = proposed_actions or []
         state = authority_state or self._default_authority_state(selected_move, actions)
         envelope = {
@@ -163,7 +272,8 @@ class HarnessKernel:
             "selected_move": selected_move,
             "intent_summary": intent_summary,
             "freshness": {
-                "fresh_user_intent_present": True,
+                "fresh_user_intent_present": fresh_user_intent_ref is not None,
+                "fresh_user_intent_ref": fresh_user_intent_ref,
                 "stale_state_used_as_authority": False,
                 "memory_used_as_instruction": False,
                 "pending_state_used_as_authority": False,
@@ -198,7 +308,7 @@ class HarnessKernel:
         args_path: str,
         requires_confirmation: bool,
     ) -> dict[str, Any]:
-        return {
+        action = {
             "action_id": _id("action"),
             "capability_id": capability_id,
             "action_type": action_type,
@@ -207,6 +317,7 @@ class HarnessKernel:
             "args_ref": artifact_ref("tool_args", args_path, "Sanitized tool arguments."),
             "requires_confirmation": requires_confirmation,
         }
+        return validate_schema_ref(PROPOSED_ACTION_SCHEMA_REF, action)
 
     def authorize(
         self,
@@ -217,9 +328,19 @@ class HarnessKernel:
     ) -> dict[str, Any]:
         validate_instance("turn-intent-envelope-vnext", envelope)
         risk = action["risk_tier"]
-        executable = envelope["action_authority"]["state"] == "executable"
-        read_only_authorized = envelope["action_authority"]["state"] == "read_only" and action.get("action_type") == "read"
-        if not executable and not read_only_authorized:
+        authority_state = envelope["action_authority"]["state"]
+        executable = authority_state == "executable"
+        read_only_authorized = authority_state == "read_only" and action.get("action_type") == "read"
+        freshness_reasons = self._fresh_user_intent_authority_reason_codes(envelope)
+        if freshness_reasons and (executable or read_only_authorized or authority_state == "confirmation_required"):
+            verdict = "deny"
+            approval = {"required": False, "status": "not_required"}
+            reasons = freshness_reasons
+        elif authority_state == "confirmation_required":
+            verdict = "interrupt"
+            approval = {"required": True, "status": "requested"}
+            reasons = ["Envelope requires explicit confirmation before execution."]
+        elif not executable and not read_only_authorized:
             verdict = "deny"
             approval = {"required": False, "status": "not_required"}
             reasons = ["Envelope is not executable; raw words or proposals cannot run tools."]
@@ -247,10 +368,159 @@ class HarnessKernel:
             "reasons": reasons,
             "evidence": envelope["evidence"],
             "approval": approval,
-            "restrictions": self._restrictions_for_action(action),
+            "restrictions": self._restrictions_for_decision(verdict, action),
             "trace": trace_ref("authorization", "Authorization decision created by Spark Harness Core."),
         }
         return validate_instance("authorization-decision-v1", decision)
+
+    def governor_decision(
+        self,
+        envelope: dict[str, Any],
+        *,
+        authorizations: list[dict[str, Any]] | None = None,
+        tool_ledgers: list[dict[str, Any]] | None = None,
+        reply_style: str | None = None,
+        reply_instruction: str | None = None,
+    ) -> dict[str, Any]:
+        validate_instance("turn-intent-envelope-vnext", envelope)
+        authorization_items = list(authorizations or [])
+        ledger_items = list(tool_ledgers or [])
+        for authorization in authorization_items:
+            validate_instance("authorization-decision-v1", authorization)
+        for ledger in ledger_items:
+            validate_instance("tool-call-ledger-v1", ledger)
+
+        outcome = self._governor_outcome(envelope, authorization_items, ledger_items)
+        authorized_action_count = sum(1 for item in authorization_items if item.get("verdict") == "allow")
+        requires_confirmation = bool(envelope["action_authority"].get("requires_human_confirmation")) or any(
+            item.get("approval", {}).get("required") for item in authorization_items
+        )
+        decision = {
+            "schema_version": "governor-decision-v1",
+            "decision_id": _id("governor-decision"),
+            "created_at": _now(),
+            "surface": envelope["surface"],
+            "turn_id": envelope["turn_id"],
+            "selected_move": envelope["selected_move"],
+            "authority_state": envelope["action_authority"]["state"],
+            "risk_tier": envelope["action_authority"]["risk_tier"],
+            "outcome": outcome,
+            "envelope": envelope,
+            "authorizations": authorization_items,
+            "tool_ledgers": ledger_items,
+            "execution_boundary": {
+                "action_authorized": outcome == "execute",
+                "action_count": len(envelope.get("proposed_actions", [])),
+                "authorized_action_count": authorized_action_count,
+                "requires_human_confirmation": requires_confirmation,
+                "legacy_authority_demoted": True,
+                "reasons": self._governor_reasons(outcome, envelope, authorization_items),
+            },
+            "reply_contract": {
+                "style": reply_style or self._default_reply_style(outcome),
+                "instruction": reply_instruction or self._default_reply_instruction(outcome),
+                "inspect_link_allowed": outcome in {"read_only", "execute", "interrupt", "degrade"},
+                "should_interrupt": outcome == "interrupt",
+            },
+            "evidence": envelope["evidence"],
+            "trace": trace_ref("governor", "Governor decision created by Spark Harness Core."),
+        }
+        return validate_instance("governor-decision-v1", decision)
+
+    def verify_governor_execution_authority(
+        self,
+        governor_decision: dict[str, Any] | None,
+        *,
+        expected_capability_id: str,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+        action_id: str | None = None,
+        allow_read_only: bool = False,
+        require_pre_execution_ledger: bool = True,
+        governor_hmac_key: str | None = None,
+        governor_hmac_key_id: str | None = None,
+        require_signature: bool = False,
+        now: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(governor_decision, dict):
+            return self._governor_consumer_verification(
+                allowed=False,
+                reason_codes=["missing_governor_decision"],
+                governor_decision=None,
+            )
+        try:
+            decision = validate_instance("governor-decision-v1", governor_decision)
+        except Exception:
+            return self._governor_consumer_verification(
+                allowed=False,
+                reason_codes=["invalid_governor_decision"],
+                governor_decision=governor_decision,
+            )
+
+        reason_codes: list[str] = []
+        reason_codes.extend(
+            governor_decision_signature_reason_codes(
+                decision,
+                key=governor_hmac_key,
+                expected_key_id=governor_hmac_key_id,
+                require_signature=require_signature,
+            )
+        )
+        outcome = str(decision.get("outcome") or "")
+        allowed_outcomes = {"execute"}
+        if allow_read_only:
+            allowed_outcomes.add("read_only")
+        if outcome not in allowed_outcomes:
+            reason_codes.append(f"governor_outcome_{outcome or 'missing'}")
+
+        boundary = decision.get("execution_boundary") if isinstance(decision.get("execution_boundary"), dict) else {}
+        if outcome == "execute" and not bool(boundary.get("action_authorized")):
+            reason_codes.append("governor_action_not_authorized")
+        reason_codes.extend(self._fresh_user_intent_authority_reason_codes(decision.get("envelope", {})))
+
+        turn_id = str(decision.get("turn_id") or "")
+        matching_authorization = self._matching_governor_authorization(
+            decision,
+            turn_id=turn_id,
+            expected_capability_id=expected_capability_id,
+            action_id=action_id,
+        )
+        if matching_authorization is None:
+            reason_codes.append("governor_missing_matching_authorization")
+        else:
+            expiry_reason = self._authorization_expiry_reason_code(matching_authorization, now=now)
+            if expiry_reason:
+                reason_codes.append(expiry_reason)
+        if matching_authorization is not None and not self._has_matching_governor_proposed_action(
+            decision,
+            authorization=matching_authorization,
+            expected_action_type=expected_action_type,
+        ):
+            reason_codes.append("governor_missing_matching_proposed_action")
+
+        matching_ledger = None
+        if matching_authorization is not None:
+            matching_ledger = self._matching_governor_tool_ledger(
+                decision,
+                authorization=matching_authorization,
+                turn_id=turn_id,
+                expected_capability_id=expected_capability_id,
+                tool_name=tool_name,
+                require_pre_execution_ledger=require_pre_execution_ledger,
+            )
+        if outcome == "execute" and matching_ledger is None:
+            reason_codes.append("governor_missing_matching_tool_ledger")
+
+        return self._governor_consumer_verification(
+            allowed=not reason_codes,
+            reason_codes=reason_codes,
+            governor_decision=decision,
+            authorization=matching_authorization,
+            ledger=matching_ledger,
+            expected_capability_id=expected_capability_id,
+            expected_action_type=expected_action_type,
+            tool_name=tool_name,
+        )
 
     def record_tool_call(
         self,
@@ -264,6 +534,8 @@ class HarnessKernel:
         summary: str,
     ) -> dict[str, Any]:
         authorization_verdict = str(authorization.get("verdict") or "")
+        self._assert_authorization_matches_action(envelope, action, authorization)
+        self._assert_execution_status_authorized(authorization_verdict, status)
         if authorization_verdict == "allow":
             authorize_stage_verdict = "passed"
         elif authorization_verdict == "interrupt":
@@ -312,6 +584,8 @@ class HarnessKernel:
         rollback_path: str | None = None,
     ) -> dict[str, Any]:
         validate_instance("tool-call-ledger-v1", ledger)
+        self._assert_ledger_authorization_binding(ledger)
+        self._assert_execution_status_authorized(str(ledger["authorization"].get("verdict") or ""), status)
         updated = deepcopy(ledger)
         execute_stage = {"stage": "execute", "at": _now(), "verdict": self._execute_verdict_for_status(status)}
         lifecycle = [dict(item) for item in updated.get("lifecycle", [])]
@@ -381,7 +655,7 @@ class HarnessKernel:
         change_manifest_refs: list[str] | None = None,
         rollback_ref: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return {
+        resource = {
             "resource_id": resource_id,
             "resource_type": resource_type,
             "owner_repo": owner_repo,
@@ -396,6 +670,7 @@ class HarnessKernel:
                 or artifact_ref("rollback", f"rollback/{resource_id}.json", "Rollback plan reference."),
             },
         }
+        return validate_schema_ref(RESOURCE_SCHEMA_REF, resource)
 
     def resource_registry(self, resources: list[dict[str, Any]]) -> dict[str, Any]:
         registry = {
@@ -428,7 +703,7 @@ class HarnessKernel:
             entry["linked_run_id"] = linked_run_id
         if linked_change_id:
             entry["linked_change_id"] = linked_change_id
-        return entry
+        return validate_schema_ref(EXPERIENCE_ENTRY_SCHEMA_REF, entry)
 
     def experience_index(
         self,
@@ -465,7 +740,7 @@ class HarnessKernel:
             metric["unit"] = unit
         if higher_is_better is not None:
             metric["higher_is_better"] = higher_is_better
-        return metric
+        return validate_schema_ref(METRIC_SCHEMA_REF, metric)
 
     def evaluation_case(
         self,
@@ -476,13 +751,14 @@ class HarnessKernel:
         expected_move: str,
         expected_authority_state: str,
     ) -> dict[str, Any]:
-        return {
+        case = {
             "case_id": case_id,
             "case_type": case_type,
             "prompt_ref": prompt_ref,
             "expected_move": expected_move,
             "expected_authority_state": expected_authority_state,
         }
+        return validate_schema_ref(EVALUATION_CASE_SCHEMA_REF, case)
 
     def evaluation_pack(
         self,
@@ -543,14 +819,32 @@ class HarnessKernel:
             "network_absorbable": False,
             "telegram_live_proven": False,
             "startup_benchmark_proven": False,
+            "performance_budget_proven": False,
+            "governance_rulesets_proven": False,
             "zero_high_agency_legacy_local_gates": False,
             **(promotion_gates or {}),
         }
         overall_score = round(sum(item["score"] for item in categories.values()) / len(READINESS_CATEGORIES), 4)
         any_blockers = any(item["blockers"] for item in categories.values())
-        if gates["public_ready"] and gates["network_absorbable"] and overall_score >= 0.95 and not any_blockers:
+        if (
+            gates["public_ready"]
+            and gates["network_absorbable"]
+            and gates["performance_budget_proven"]
+            and gates["governance_rulesets_proven"]
+            and gates["zero_high_agency_legacy_local_gates"]
+            and overall_score >= 0.95
+            and not any_blockers
+        ):
             status = "public_ready"
-        elif overall_score >= 0.85 and gates["telegram_live_proven"] and gates["startup_benchmark_proven"] and not any_blockers:
+        elif (
+            overall_score >= 0.85
+            and gates["telegram_live_proven"]
+            and gates["startup_benchmark_proven"]
+            and gates["performance_budget_proven"]
+            and gates["governance_rulesets_proven"]
+            and gates["zero_high_agency_legacy_local_gates"]
+            and not any_blockers
+        ):
             status = "release_candidate"
         elif overall_score >= 0.7 and gates["zero_high_agency_legacy_local_gates"]:
             status = "private_ready"
@@ -607,6 +901,237 @@ class HarnessKernel:
             },
         }
         return validate_instance("harness-run-v1", run)
+
+    def legacy_authority_plane(
+        self,
+        *,
+        plane_id: str,
+        owner_repo: str,
+        surface: str,
+        plane_type: str,
+        source_path: str,
+        summary: str,
+        authority_risk: dict[str, bool],
+        disposition: str,
+        evidence: list[dict[str, Any]],
+        governor_required: bool = False,
+        evidence_only: bool = False,
+        consumer_of_governor: bool = False,
+        ledger_required: bool = False,
+        blockers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if disposition not in LEGACY_PLANE_DISPOSITIONS:
+            raise ValueError(f"unsupported legacy authority plane disposition: {disposition}")
+        normalized_risk = {key: bool(authority_risk.get(key)) for key in LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS}
+        blocker_items = list(blockers or [])
+        self._validate_legacy_plane_disposition(
+            authority_risk=normalized_risk,
+            disposition=disposition,
+            governor_required=governor_required,
+            evidence_only=evidence_only,
+            consumer_of_governor=consumer_of_governor,
+            ledger_required=ledger_required,
+            blockers=blocker_items,
+        )
+        plane = {
+            "schema_version": "legacy-authority-plane-v1",
+            "plane_id": plane_id,
+            "created_at": _now(),
+            "owner_repo": owner_repo,
+            "surface": surface,
+            "plane_type": plane_type,
+            "source_ref": artifact_ref("legacy_authority_source", source_path, summary, redaction_class="metadata_only"),
+            "authority_risk": normalized_risk,
+            "disposition": disposition,
+            "harness_binding": {
+                "governor_required": governor_required,
+                "evidence_only": evidence_only,
+                "consumer_of_governor": consumer_of_governor,
+                "ledger_required": ledger_required,
+                "notes": summary,
+            },
+            "evidence": evidence,
+            "blockers": blocker_items,
+            "trace": trace_ref("legacy_authority_plane", summary),
+        }
+        return validate_instance("legacy-authority-plane-v1", plane)
+
+    def legacy_authority_inventory(
+        self,
+        *,
+        inventory_id: str,
+        owner_repo: str,
+        surfaces: list[str],
+        planes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        for plane in planes:
+            validate_instance("legacy-authority-plane-v1", plane)
+        disposition_counts = {disposition: 0 for disposition in LEGACY_PLANE_DISPOSITIONS}
+        high_agency_count = 0
+        blockers: list[str] = []
+        for plane in planes:
+            disposition = str(plane.get("disposition") or "")
+            if disposition in disposition_counts:
+                disposition_counts[disposition] += 1
+            if self._legacy_plane_has_high_agency_risk(dict(plane.get("authority_risk") or {})):
+                high_agency_count += 1
+            for blocker in plane.get("blockers", []):
+                blockers.append(str(blocker))
+            if disposition == "release_blocker":
+                blockers.append(f"{plane.get('plane_id', 'legacy-plane:unknown')} is a release blocker")
+        release_blocker_count = disposition_counts["release_blocker"]
+        ready = release_blocker_count == 0 and not blockers
+        inventory = {
+            "schema_version": "legacy-authority-inventory-v1",
+            "inventory_id": inventory_id,
+            "created_at": _now(),
+            "scope": {
+                "owner_repo": owner_repo,
+                "surfaces": surfaces,
+            },
+            "planes": planes,
+            "summary": {
+                "plane_count": len(planes),
+                "removed_count": disposition_counts["removed"],
+                "quarantined_count": disposition_counts["quarantined"],
+                "evidence_adapter_count": disposition_counts["evidence_adapter"],
+                "canonical_consumer_count": disposition_counts["canonical_consumer"],
+                "release_blocker_count": release_blocker_count,
+                "high_agency_risk_count": high_agency_count,
+            },
+            "release_gate": {
+                "zero_high_agency_legacy_local_gates": ready,
+                "ready_for_readiness_promotion": ready,
+                "blockers": blockers,
+            },
+        }
+        return validate_instance("legacy-authority-inventory-v1", inventory)
+
+    def telegram_live_qa_case(
+        self,
+        *,
+        ordinal: int,
+        case_id: str,
+        suite: str,
+        risk: str,
+        expected_route: str,
+        expected_outcome: str,
+        prompts: list[str],
+    ) -> dict[str, Any]:
+        turns = [prompt.strip() for prompt in prompts if prompt.strip()]
+        if not turns:
+            raise ValueError("telegram live QA case requires at least one prompt.")
+        if risk not in LIVE_QA_RISKS:
+            raise ValueError(f"unsupported Telegram live QA risk: {risk}")
+        return {
+            "ordinal": ordinal,
+            "id": case_id,
+            "suite": suite,
+            "risk": risk,
+            "expected_route": expected_route,
+            "expected_outcome": expected_outcome,
+            "verdict": "untested",
+            "actual_route": None,
+            "actual_outcome": None,
+            "observed_turns": [
+                {
+                    "turn_index": index + 1,
+                    "prompt": prompt,
+                    "reply": None,
+                    "reply_timestamp": None,
+                }
+                for index, prompt in enumerate(turns)
+            ],
+            "side_effects": {
+                "files_changed": None,
+                "memory_written": None,
+                "mission_started": None,
+                "external_network_called": None,
+                "pr_opened": None,
+                "publish_or_deploy_started": None,
+                "schedule_changed": None,
+                "tool_or_browser_used": None,
+            },
+            "evidence_refs": {
+                "authorization_ledgers": [],
+                "tool_ledgers": [],
+                "traces": [],
+                "runtime_status": [],
+                "screenshots": [],
+                "commits": [],
+                "prs": [],
+            },
+            "issue": None,
+            "fix_commit": None,
+            "retest_required": False,
+        }
+
+    def telegram_live_qa_evidence_packet(
+        self,
+        *,
+        cases: list[dict[str, Any]],
+        catalog: str,
+        title: str = "Spark Telegram Live QA Evidence Packet",
+        suite: str | None = None,
+        include_risky: bool = False,
+        required_session_evidence: dict[str, Any] | None = None,
+        run_id: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        created_at = generated_at or _now()
+        risk_counts = {risk: 0 for risk in LIVE_QA_RISKS}
+        summary_counts = {verdict.replace("-", "_"): 0 for verdict in LIVE_QA_VERDICTS}
+        for case in cases:
+            risk = str(case.get("risk") or "")
+            verdict = str(case.get("verdict") or "untested")
+            if risk not in risk_counts:
+                raise ValueError(f"unsupported Telegram live QA risk: {risk}")
+            if verdict not in LIVE_QA_VERDICTS:
+                raise ValueError(f"unsupported Telegram live QA verdict: {verdict}")
+            risk_counts[risk] += 1
+            summary_counts[verdict.replace("-", "_")] += 1
+        session_evidence = {
+            "profile": None,
+            "tester": None,
+            "bot_runtime_commit": None,
+            "harness_core_commit": None,
+            "spark_os_compile_ref": None,
+            "spark_live_status_ref": None,
+            "spark_verify_provenance_ref": None,
+            "telegram_chat_evidence_ref": None,
+            "overall_verdict": "untested",
+            "follow_up_commits": [],
+            "pr_links": [],
+            "remaining_risks": [],
+        }
+        if required_session_evidence:
+            session_evidence.update(required_session_evidence)
+            session_evidence["follow_up_commits"] = list(required_session_evidence.get("follow_up_commits") or [])
+            session_evidence["pr_links"] = list(required_session_evidence.get("pr_links") or [])
+            session_evidence["remaining_risks"] = list(required_session_evidence.get("remaining_risks") or [])
+        packet = {
+            "schema_version": "spark.telegram_live_qa_evidence_packet.v1",
+            "generated_at": created_at,
+            "run_id": run_id or f"telegram-live-qa-{created_at.replace(':', '-').replace('.', '-')}",
+            "title": title,
+            "catalog": catalog,
+            "selection": {
+                "suite": suite,
+                "include_risky": include_risky,
+                "case_count": len(cases),
+                "risk_counts": risk_counts,
+            },
+            "authority_claim_boundary": (
+                "This packet is a live QA evidence container. It does not prove release readiness until "
+                "each case has observed replies, side-effect checks, ledger or trace evidence where required, "
+                "and a human verdict. It must not be treated as authority to execute high-agency actions."
+            ),
+            "required_session_evidence": session_evidence,
+            "verdict_values": list(LIVE_QA_VERDICTS),
+            "cases": cases,
+            "summary": summary_counts,
+        }
+        return validate_instance("telegram-live-qa-evidence-packet-v1", packet)
 
     def change_manifest(
         self,
@@ -697,6 +1222,397 @@ class HarnessKernel:
         }
         return validate_instance("self-evolution-run-v1", record)
 
+    @staticmethod
+    def _fresh_user_intent_ref_from_evidence(evidence_items: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for item in evidence_items:
+            if isinstance(item, dict) and item.get("kind") == "fresh_user_intent":
+                return item
+        return None
+
+    @staticmethod
+    def _fresh_user_intent_authority_reason_codes(envelope: dict[str, Any]) -> list[str]:
+        if str(envelope.get("selected_move") or "") not in FRESH_USER_INTENT_REQUIRED_MOVES:
+            return []
+
+        reasons: list[str] = []
+        actor = envelope.get("actor") if isinstance(envelope.get("actor"), dict) else {}
+        if actor.get("kind") != "human":
+            reasons.append("fresh_user_intent_actor_not_human")
+
+        freshness = envelope.get("freshness") if isinstance(envelope.get("freshness"), dict) else {}
+        if not freshness.get("fresh_user_intent_present"):
+            reasons.append("fresh_user_intent_missing")
+        if freshness.get("stale_state_used_as_authority"):
+            reasons.append("stale_state_used_as_authority")
+        if freshness.get("memory_used_as_instruction"):
+            reasons.append("memory_used_as_instruction")
+        if freshness.get("pending_state_used_as_authority"):
+            reasons.append("pending_state_used_as_authority")
+
+        fresh_ref = freshness.get("fresh_user_intent_ref") if isinstance(freshness, dict) else None
+        if not isinstance(fresh_ref, dict):
+            reasons.append("fresh_user_intent_ref_missing")
+            return reasons
+        if fresh_ref.get("kind") != "fresh_user_intent":
+            reasons.append("fresh_user_intent_ref_not_fresh_user_intent")
+
+        evidence_items = envelope.get("evidence") if isinstance(envelope.get("evidence"), list) else []
+        bound = any(
+            isinstance(item, dict)
+            and item.get("id") == fresh_ref.get("id")
+            and item.get("kind") == "fresh_user_intent"
+            and item.get("source") == fresh_ref.get("source")
+            for item in evidence_items
+        )
+        if not bound:
+            reasons.append("fresh_user_intent_evidence_unbound")
+        return list(dict.fromkeys(reasons))
+
+    def change_manifest_runner(
+        self,
+        *,
+        mode: str,
+        experience_index: dict[str, Any],
+        readiness_score: dict[str, Any],
+        commands: list[str],
+        target_components: list[dict[str, Any]] | None = None,
+        change_manifests: list[dict[str, Any]] | None = None,
+        evaluation_packs: list[dict[str, Any]] | None = None,
+        requested_verdict: str | None = None,
+        roles: dict[str, str] | None = None,
+        live_surface_required: bool = False,
+    ) -> dict[str, Any]:
+        manifests = list(change_manifests or [])
+        components = list(target_components or [])
+        known_component_ids = {str(component.get("component_id") or "") for component in components}
+        for manifest in manifests:
+            validate_instance("change-manifest-v1", manifest)
+            component = manifest.get("target_component")
+            if isinstance(component, dict):
+                component_id = str(component.get("component_id") or "")
+                if component_id and component_id not in known_component_ids:
+                    components.append(component)
+                    known_component_ids.add(component_id)
+
+        decision = self._change_manifest_runner_decision(
+            mode=mode,
+            readiness_score=readiness_score,
+            target_components=components,
+            change_manifests=manifests,
+            live_surface_required=live_surface_required,
+            requested_verdict=requested_verdict,
+        )
+        return self.self_evolution_run(
+            mode=mode,
+            experience_index=experience_index,
+            readiness_score=readiness_score,
+            commands=commands,
+            target_components=components,
+            change_manifests=manifests,
+            evaluation_packs=evaluation_packs,
+            verdict=decision["verdict"],
+            summary=decision["summary"],
+            roles=roles,
+            live_surface_required=live_surface_required,
+        )
+
+    def _governor_outcome(
+        self,
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+    ) -> str:
+        state = str(envelope["action_authority"]["state"])
+        selected_move = str(envelope["selected_move"])
+        action_count = len(envelope.get("proposed_actions", []))
+        verdicts = [str(item.get("verdict") or "") for item in authorizations]
+        if self._fresh_user_intent_authority_reason_codes(envelope):
+            return "deny"
+        if state == "executable" and "allow" in verdicts:
+            if self._has_matching_execution_ledger(envelope, authorizations, tool_ledgers):
+                return "execute"
+            return "degrade"
+        if state == "confirmation_required" or "interrupt" in verdicts:
+            return "interrupt"
+        if state == "read_only":
+            return "read_only"
+        if state == "prepare_allowed":
+            return "prepare"
+        if "deny" in verdicts or state == "blocked":
+            return "deny"
+        if selected_move.startswith("chat_") and action_count == 0:
+            return "chat_only"
+        return "degrade"
+
+    @staticmethod
+    def _has_matching_execution_ledger(
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+    ) -> bool:
+        allowed_actions = {
+            (
+                str(authorization.get("action_id") or ""),
+                str(authorization.get("capability_id") or ""),
+            )
+            for authorization in authorizations
+            if authorization.get("verdict") == "allow"
+        }
+        if not allowed_actions:
+            return False
+        turn_id = str(envelope.get("turn_id") or "")
+        proposed_action_ids = {str(action.get("action_id") or "") for action in envelope.get("proposed_actions", [])}
+        for ledger in tool_ledgers:
+            action_key = (
+                str(ledger.get("action_id") or ""),
+                str(ledger.get("capability_id") or ""),
+            )
+            authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+            if (
+                str(ledger.get("turn_id") or "") == turn_id
+                and str(ledger.get("action_id") or "") in proposed_action_ids
+                and action_key in allowed_actions
+                and authorization.get("verdict") == "allow"
+                and str(authorization.get("turn_id") or "") == turn_id
+                and str(authorization.get("action_id") or "") == str(ledger.get("action_id") or "")
+                and str(authorization.get("capability_id") or "") == str(ledger.get("capability_id") or "")
+                and str(authorization.get("decision_id") or "")
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _matching_governor_authorization(
+        governor_decision: dict[str, Any],
+        *,
+        turn_id: str,
+        expected_capability_id: str,
+        action_id: str | None,
+    ) -> dict[str, Any] | None:
+        authorizations = governor_decision.get("authorizations")
+        if not isinstance(authorizations, list):
+            return None
+        for authorization in authorizations:
+            if not isinstance(authorization, dict):
+                continue
+            if str(authorization.get("verdict") or "") != "allow":
+                continue
+            if str(authorization.get("turn_id") or "") != turn_id:
+                continue
+            if str(authorization.get("capability_id") or "") != expected_capability_id:
+                continue
+            if action_id is not None and str(authorization.get("action_id") or "") != str(action_id):
+                continue
+            if not str(authorization.get("decision_id") or ""):
+                continue
+            return authorization
+        return None
+
+    @staticmethod
+    def _authorization_expiry_reason_code(
+        authorization: dict[str, Any],
+        *,
+        now: str | None = None,
+    ) -> str | None:
+        approval = authorization.get("approval") if isinstance(authorization.get("approval"), dict) else {}
+        if str(approval.get("status") or "") == "expired":
+            return "authorization_approval_expired"
+        expires_at = str(authorization.get("expires_at") or "").strip()
+        if not expires_at:
+            return None
+        expires = _parse_iso_timestamp(expires_at)
+        if expires is None:
+            return "authorization_expiry_invalid"
+        now_value = _parse_iso_timestamp(now) if now else datetime.now(UTC)
+        if now_value is None:
+            return "authorization_expiry_invalid"
+        if expires <= now_value:
+            return "authorization_expired"
+        return None
+
+    @staticmethod
+    def _has_matching_governor_proposed_action(
+        governor_decision: dict[str, Any],
+        *,
+        authorization: dict[str, Any],
+        expected_action_type: str | None,
+    ) -> bool:
+        envelope = governor_decision.get("envelope") if isinstance(governor_decision.get("envelope"), dict) else {}
+        proposed_actions = envelope.get("proposed_actions") if isinstance(envelope.get("proposed_actions"), list) else []
+        for action in proposed_actions:
+            if not isinstance(action, dict):
+                continue
+            if str(action.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(action.get("capability_id") or "") != str(authorization.get("capability_id") or ""):
+                continue
+            if expected_action_type is not None and str(action.get("action_type") or "") != expected_action_type:
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _matching_governor_tool_ledger(
+        governor_decision: dict[str, Any],
+        *,
+        authorization: dict[str, Any],
+        turn_id: str,
+        expected_capability_id: str,
+        tool_name: str | None,
+        require_pre_execution_ledger: bool,
+    ) -> dict[str, Any] | None:
+        ledgers = governor_decision.get("tool_ledgers")
+        if not isinstance(ledgers, list):
+            return None
+        for ledger in ledgers:
+            if not isinstance(ledger, dict):
+                continue
+            ledger_authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+            result = ledger.get("result") if isinstance(ledger.get("result"), dict) else {}
+            if str(ledger.get("turn_id") or "") != turn_id:
+                continue
+            if str(ledger.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(ledger.get("capability_id") or "") != expected_capability_id:
+                continue
+            if tool_name is not None and str(ledger.get("tool_name") or "") != str(tool_name):
+                continue
+            if require_pre_execution_ledger and str(result.get("status") or "") != "not_started":
+                continue
+            if str(ledger_authorization.get("verdict") or "") != "allow":
+                continue
+            if str(ledger_authorization.get("turn_id") or "") != turn_id:
+                continue
+            if str(ledger_authorization.get("action_id") or "") != str(authorization.get("action_id") or ""):
+                continue
+            if str(ledger_authorization.get("capability_id") or "") != expected_capability_id:
+                continue
+            if str(ledger_authorization.get("decision_id") or "") != str(authorization.get("decision_id") or ""):
+                continue
+            return ledger
+        return None
+
+    @staticmethod
+    def _governor_consumer_verification(
+        *,
+        allowed: bool,
+        reason_codes: list[str],
+        governor_decision: dict[str, Any] | None,
+        authorization: dict[str, Any] | None = None,
+        ledger: dict[str, Any] | None = None,
+        expected_capability_id: str | None = None,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+    ) -> dict[str, Any]:
+        verification = {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": allowed,
+            "reason_codes": reason_codes,
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+            "decision_id": str((governor_decision or {}).get("decision_id") or "") or None,
+            "turn_id": str((governor_decision or {}).get("turn_id") or "") or None,
+            "outcome": str((governor_decision or {}).get("outcome") or "") or None,
+            "expected_capability_id": expected_capability_id,
+            "expected_action_type": expected_action_type,
+            "tool_name": tool_name,
+            "action_id": str((authorization or {}).get("action_id") or "") or None,
+            "capability_id": str((authorization or {}).get("capability_id") or "") or None,
+            "authorization_decision_id": str((authorization or {}).get("decision_id") or "") or None,
+            "ledger_id": str((ledger or {}).get("ledger_id") or "") or None,
+        }
+        return validate_instance("governor-consumer-verification-v1", verification)
+
+    @staticmethod
+    def _assert_authorization_matches_action(
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+    ) -> None:
+        mismatches: list[str] = []
+        if str(authorization.get("turn_id") or "") != str(envelope.get("turn_id") or ""):
+            mismatches.append("turn_id")
+        if str(authorization.get("action_id") or "") != str(action.get("action_id") or ""):
+            mismatches.append("action_id")
+        if str(authorization.get("capability_id") or "") != str(action.get("capability_id") or ""):
+            mismatches.append("capability_id")
+        if mismatches:
+            raise ValueError(f"authorization does not match proposed action: {', '.join(mismatches)}")
+
+    @staticmethod
+    def _assert_ledger_authorization_binding(ledger: dict[str, Any]) -> None:
+        authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+        mismatches: list[str] = []
+        if str(authorization.get("turn_id") or "") != str(ledger.get("turn_id") or ""):
+            mismatches.append("turn_id")
+        if str(authorization.get("action_id") or "") != str(ledger.get("action_id") or ""):
+            mismatches.append("action_id")
+        if str(authorization.get("capability_id") or "") != str(ledger.get("capability_id") or ""):
+            mismatches.append("capability_id")
+        if not str(authorization.get("decision_id") or ""):
+            mismatches.append("decision_id")
+        if mismatches:
+            raise ValueError(f"tool ledger authorization binding mismatch: {', '.join(mismatches)}")
+
+    def _governor_reasons(
+        self,
+        outcome: str,
+        envelope: dict[str, Any],
+        authorizations: list[dict[str, Any]],
+    ) -> list[str]:
+        reasons = [
+            "fresh_user_intent_is_authority",
+            "legacy_detectors_are_evidence_only",
+        ]
+        if outcome == "execute":
+            reasons.append("governor_authorized_execution")
+        elif (
+            envelope["action_authority"].get("state") == "executable"
+            and any(authorization.get("verdict") == "allow" for authorization in authorizations)
+        ):
+            reasons.append("governor_missing_tool_ledger_for_authorized_execution")
+        elif outcome == "interrupt":
+            reasons.append("governor_requires_explicit_confirmation")
+        elif outcome == "read_only":
+            reasons.append("governor_allows_read_only_state_access")
+        elif outcome == "chat_only":
+            reasons.append("governor_keeps_turn_conversational")
+        elif outcome == "prepare":
+            reasons.append("governor_allows_preparation_without_execution")
+        elif outcome == "deny":
+            reasons.append("governor_denies_action_boundary")
+        else:
+            reasons.append("governor_degrades_to_safe_surface_behavior")
+        for authorization in authorizations:
+            for reason in authorization.get("reasons", []):
+                if reason not in reasons:
+                    reasons.append(str(reason))
+        if envelope["action_authority"].get("requires_human_confirmation"):
+            reasons.append("human_confirmation_required_by_envelope")
+        for reason in self._fresh_user_intent_authority_reason_codes(envelope):
+            if reason not in reasons:
+                reasons.append(reason)
+        return reasons
+
+    def _default_reply_style(self, outcome: str) -> str:
+        if outcome == "degrade":
+            return "compact_status"
+        return "human_conversational"
+
+    def _default_reply_instruction(self, outcome: str) -> str:
+        if outcome == "execute":
+            return "Proceed only with the authorized action and record the result ledger."
+        if outcome == "interrupt":
+            return "Ask for explicit approval before any high-agency action executes."
+        if outcome == "read_only":
+            return "Answer from fresh read-only state; do not mutate state."
+        if outcome == "prepare":
+            return "Prepare the action plan without executing tools or mutating state."
+        if outcome == "deny":
+            return "Briefly explain why the action boundary was denied and stay conversational."
+        if outcome == "degrade":
+            return "Use the safest non-executing surface behavior and preserve evidence for review."
+        return "Answer conversationally; do not launch, write, schedule, publish, or run tools."
+
     def _validate_self_evolution_policy(
         self,
         *,
@@ -737,18 +1653,107 @@ class HarnessKernel:
             if not any(manifest.get("verdict") == "rolled_back" for manifest in change_manifests):
                 raise ValueError("rollback verdict requires at least one rolled_back change manifest.")
 
+        if self._self_evolution_requires_protected_approval(mode=mode, verdict=verdict):
+            missing_approval = self._protected_components_missing_approval(
+                target_components=target_components,
+                change_manifests=change_manifests,
+            )
+            if missing_approval:
+                raise ValueError(
+                    "protected self-evolution components require approval evidence: "
+                    f"{', '.join(missing_approval)}"
+                )
+
+    def _change_manifest_runner_decision(
+        self,
+        *,
+        mode: str,
+        readiness_score: dict[str, Any],
+        target_components: list[dict[str, Any]],
+        change_manifests: list[dict[str, Any]],
+        live_surface_required: bool,
+        requested_verdict: str | None,
+    ) -> dict[str, str | list[str]]:
+        reasons: list[str] = []
+        if mode == "observe":
+            reasons.append("observe_mode_records_evidence_only")
+            return self._runner_decision("not_ready", reasons)
+        if requested_verdict == "rollback" or mode == "rollback":
+            if mode != "rollback":
+                reasons.append("rollback_requires_rollback_mode")
+            if not any(manifest.get("verdict") == "rolled_back" for manifest in change_manifests):
+                reasons.append("rollback_requires_rolled_back_manifest")
+            return self._runner_decision("rollback" if not reasons else "not_ready", reasons or ["rollback_manifest_present"])
+        if mode != "promote":
+            reasons.append(f"{mode}_mode_cannot_promote")
+        if not change_manifests:
+            reasons.append("no_change_manifests")
+        non_accepted = [
+            str(manifest.get("change_id") or "change:unknown")
+            for manifest in change_manifests
+            if manifest.get("verdict") != "accepted"
+        ]
+        if non_accepted:
+            reasons.append(f"non_accepted_change_manifests:{','.join(non_accepted)}")
+        if live_surface_required or any(bool(manifest.get("live_proof_required")) for manifest in change_manifests):
+            reasons.append("live_proof_still_required")
+        missing_approval = self._protected_components_missing_approval(
+            target_components=target_components,
+            change_manifests=change_manifests,
+        )
+        if missing_approval:
+            reasons.append(f"protected_component_requires_approval:{','.join(missing_approval)}")
+
+        requested = requested_verdict if requested_verdict in PROMOTION_VERDICTS else None
+        readiness_status = str(readiness_score.get("overall", {}).get("status") or "blocked")
+        if requested is None:
+            requested = (
+                "promote_release_candidate"
+                if READINESS_STATUS_RANK.get(readiness_status, 0) >= READINESS_STATUS_RANK["release_candidate"]
+                else "promote_private"
+            )
+        required_status = "private_ready" if requested == "promote_private" else "release_candidate"
+        if READINESS_STATUS_RANK.get(readiness_status, 0) < READINESS_STATUS_RANK[required_status]:
+            reasons.append(f"readiness_below_{required_status}:{readiness_status}")
+        if reasons:
+            return self._runner_decision("not_ready", reasons)
+        return self._runner_decision(requested, ["accepted_change_manifests_ready"])
+
+    @staticmethod
+    def _runner_decision(verdict: str, reasons: list[str]) -> dict[str, str | list[str]]:
+        reason_text = ", ".join(reasons) if reasons else "no_blockers"
+        if verdict == "not_ready":
+            summary = f"Change manifest runner is not ready to promote: {reason_text}."
+        elif verdict == "rollback":
+            summary = f"Change manifest runner selected rollback: {reason_text}."
+        else:
+            summary = f"Change manifest runner selected {verdict}: {reason_text}."
+        return {"verdict": verdict, "summary": summary, "reasons": reasons}
+
+    @staticmethod
+    def _self_evolution_requires_protected_approval(*, mode: str, verdict: str) -> bool:
+        return verdict != "not_ready" and (
+            mode in MUTATING_EVOLUTION_MODES or verdict in PROMOTION_VERDICTS or verdict == "rollback"
+        )
+
+    @staticmethod
+    def _protected_components_missing_approval(
+        *,
+        target_components: list[dict[str, Any]],
+        change_manifests: list[dict[str, Any]],
+    ) -> list[str]:
         approved_component_ids = {
             str(manifest.get("target_component", {}).get("component_id"))
             for manifest in change_manifests
             if manifest.get("human_approval_ref") is not None
         }
+        missing: list[str] = []
         for component in target_components:
             component_type = str(component.get("component_type") or "")
             component_id = str(component.get("component_id") or "")
             if component_type in PROTECTED_EVOLUTION_COMPONENTS and component_id not in approved_component_ids:
-                raise ValueError(
-                    f"protected self-evolution component {component_id or component_type} requires approval evidence."
-                )
+                missing.append(component_id or component_type)
+        return missing
 
     @staticmethod
     def _default_authority_state(selected_move: str, actions: list[dict[str, Any]]) -> str:
@@ -773,6 +1778,14 @@ class HarnessKernel:
         return "failed"
 
     @staticmethod
+    def _assert_execution_status_authorized(authorization_verdict: str, status: str) -> None:
+        if status in EXECUTED_TOOL_STATUSES and authorization_verdict != "allow":
+            raise ValueError(
+                "Tool execution status requires allow authorization; blocked or interrupted actions may only "
+                "record a not_started ledger."
+            )
+
+    @staticmethod
     def _restrictions_for_action(action: dict[str, Any]) -> dict[str, bool]:
         action_type = str(action.get("action_type") or "")
         requires_confirmation = bool(action.get("requires_confirmation"))
@@ -782,3 +1795,47 @@ class HarnessKernel:
             or (action_type == "browser_action" and requires_confirmation),
             "publish_allowed": action_type in {"publish", "deploy", "open_pr"},
         }
+
+    def _restrictions_for_decision(self, verdict: str, action: dict[str, Any]) -> dict[str, bool]:
+        restrictions = self._restrictions_for_action(action)
+        if verdict == "deny":
+            return {
+                **restrictions,
+                "network_allowed": False,
+                "write_allowed": False,
+                "publish_allowed": False,
+            }
+        return restrictions
+
+    @staticmethod
+    def _legacy_plane_has_high_agency_risk(authority_risk: dict[str, Any]) -> bool:
+        return any(bool(authority_risk.get(key)) for key in LEGACY_PLANE_HIGH_AGENCY_RISK_KEYS)
+
+    def _validate_legacy_plane_disposition(
+        self,
+        *,
+        authority_risk: dict[str, bool],
+        disposition: str,
+        governor_required: bool,
+        evidence_only: bool,
+        consumer_of_governor: bool,
+        ledger_required: bool,
+        blockers: list[str],
+    ) -> None:
+        high_agency_risk = self._legacy_plane_has_high_agency_risk(authority_risk)
+        if disposition == "release_blocker":
+            if not blockers:
+                raise ValueError("release-blocker legacy authority planes require at least one blocker.")
+            return
+        if blockers:
+            raise ValueError("non-blocking legacy authority planes cannot carry release blockers.")
+        if disposition in {"removed", "quarantined"}:
+            return
+        if disposition == "evidence_adapter":
+            if high_agency_risk:
+                raise ValueError("evidence adapters cannot retain high-agency execution risk.")
+            if not evidence_only or consumer_of_governor:
+                raise ValueError("evidence_adapter requires evidence_only and no consumer authority.")
+        if disposition == "canonical_consumer":
+            if not (governor_required and consumer_of_governor and ledger_required):
+                raise ValueError("canonical legacy consumers require Governor authority and tool ledgers.")

@@ -32,7 +32,7 @@ The pasted notes reinforce the same architecture from three directions:
 - `ResourceRegistryV1`: versions prompts, agents, tools, environments, memory stores, adapters, specs, eval packs, startup policies, and surface rules.
 - `ExperienceIndexV1`: keeps raw traces, cleaned traces, screenshots, route decisions, tool ledgers, scores, diffs, and live evidence searchable without flooding context.
 - `SurfaceSpecV1`: makes each surface executable as a natural-language harness spec under the shared runtime charter.
-- `ReadinessScoreV1`: scores execution, tools, context, lifecycle, observability, verification, and governance before promotion.
+- `ReadinessScoreV1`: scores execution, tools, context, lifecycle, observability, verification, and governance before promotion, with explicit gates for live Telegram proof, startup benchmark proof, performance budget proof, governance ruleset proof, and legacy-plane retirement.
 - `AutonomyPolicyV1`: defines risk tiers, autonomy levels, allow/deny rules, approvals, hooks, and headless constraints.
 - `EvaluationPackV1`: packages route, tool, startup, live Telegram, regression, latency, cost, and blind-jury cases.
 - `SelfEvolutionRunV1`: records the observe, distill, diagnose, manifest, patch, test, compare, promote/rollback loop.
@@ -43,6 +43,8 @@ The pasted notes reinforce the same architecture from three directions:
 - High-agency action requires envelope, authorization, ledger, and verdict.
 - Route-specific regex may submit evidence but cannot own authority.
 - Memory, pending state, route history, provider names, and stale mission state are evidence only.
+- Historical patches and legacy local detectors must be retired or demoted to
+  evidence-only adapters; they cannot remain as fallback authority planes.
 - Self-evolution cannot alter verifier, benchmark, model config, or authority policy without explicit approval.
 - Every accepted improvement must preserve or improve authority correctness.
 
@@ -54,4 +56,3 @@ The pasted notes reinforce the same architecture from three directions:
 4. Integrate memory as evidence, not instruction.
 5. Integrate startup operator benchmarks and blind jury gates.
 6. Integrate recursive/swarm experiments through self-evolution runs.
-

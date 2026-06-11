@@ -51,7 +51,31 @@ class TypeScriptContractTests(unittest.TestCase):
               promotion_gates: {
                 telegram_live_proven: true,
                 startup_benchmark_proven: true,
+                performance_budget_proven: true,
+                governance_rulesets_proven: true,
                 zero_high_agency_legacy_local_gates: true
+              }
+            });
+            const readinessWithLegacyBlocker = core.createHarnessCoreReadinessScore({
+              id: 'telegram-authority-legacy-blocked',
+              target_kind: 'surface',
+              target_id: 'surface:telegram',
+              owner_repo: 'spark-telegram-bot',
+              categories: {
+                execution: category,
+                tools: category,
+                context: category,
+                lifecycle: category,
+                observability: category,
+                verification: category,
+                governance: category
+              },
+              promotion_gates: {
+                telegram_live_proven: true,
+                startup_benchmark_proven: true,
+                performance_budget_proven: true,
+                governance_rulesets_proven: true,
+                zero_high_agency_legacy_local_gates: false
               }
             });
             const experience = core.createHarnessCoreExperienceIndex({
@@ -104,6 +128,120 @@ class TypeScriptContractTests(unittest.TestCase):
               metrics: [{ name: 'case_count', value: 1 }],
               status: 'passed',
               summary: 'Route matrix passed.'
+            });
+            const legacyRemovedPlane = core.createHarnessCoreLegacyAuthorityPlane({
+              id: 'telegram-retired-route-helper',
+              owner_repo: 'spark-telegram-bot',
+              surface: 'telegram',
+              plane_type: 'regex_router',
+              source_path: 'removed://spark-telegram-bot/legacy-route-helper',
+              summary: 'Legacy Telegram route helper is removed; Harness Core plus Governor owns authority.',
+              authority_risk: {
+                can_execute: false,
+                can_mutate_state: false,
+                can_route_turns: false,
+                can_launch_mission: false
+              },
+              disposition: 'removed',
+              evidence: [evidence],
+            });
+            const legacyEvidencePlane = core.createHarnessCoreLegacyAuthorityPlane({
+              id: 'telegram-keyword-detector',
+              owner_repo: 'spark-telegram-bot',
+              surface: 'telegram',
+              plane_type: 'keyword_detector',
+              source_path: 'src/intent-keywords.ts',
+              summary: 'Keyword detector now submits evidence only.',
+              authority_risk: {},
+              disposition: 'evidence_adapter',
+              evidence: [evidence],
+              evidence_only: true
+            });
+            const legacyInventory = core.createHarnessCoreLegacyAuthorityInventory({
+              id: 'telegram-legacy-inventory',
+              owner_repo: 'spark-telegram-bot',
+              surfaces: ['telegram'],
+              planes: [legacyRemovedPlane, legacyEvidencePlane]
+            });
+            let blockedLegacyPlaneError = '';
+            try {
+              core.createHarnessCoreLegacyAuthorityPlane({
+                id: 'bad-local-dispatcher',
+                owner_repo: 'spark-telegram-bot',
+                surface: 'telegram',
+                plane_type: 'local_dispatcher',
+                source_path: 'src/bad-local-dispatcher.ts',
+                summary: 'This local dispatcher still has high-agency authority.',
+                authority_risk: {
+                  can_execute: true,
+                  can_mutate_state: true,
+                  can_route_turns: true,
+                  can_launch_mission: true
+                },
+                disposition: 'evidence_adapter',
+                evidence: [evidence]
+              });
+            } catch (error) {
+              blockedLegacyPlaneError = error instanceof Error ? error.message : String(error);
+            }
+            const telegramLiveQaPacket = core.createTelegramLiveQaEvidencePacket({
+              generated_at: '2026-06-02T00:00:00.000Z',
+              catalog: 'genesis-live-telegram-100.json',
+              include_risky: true,
+              title: 'Spark Genesis Telegram Live QA Evidence Packet',
+              required_session_evidence: {
+                profile: 'sparkqa-bot',
+                tester: 'codex',
+                bot_runtime_commit: 'abc1234',
+                harness_core_commit: 'def5678',
+                spark_os_compile_ref: '/tmp/spark-os-compile.json',
+                spark_live_status_ref: '/tmp/spark-live-status.json',
+                spark_verify_provenance_ref: '/tmp/spark-verify.json',
+                telegram_chat_evidence_ref: '/tmp/telegram.png',
+                overall_verdict: 'untested',
+                follow_up_commits: ['abc1234'],
+                pr_links: [],
+                remaining_risks: ['100 live prompts still incomplete']
+              },
+              cases: [{
+                ordinal: 1,
+                id: 'genesis-001',
+                suite: 'genesis_normal_conversation',
+                risk: 'safe',
+                expected_route: 'chat_think_with_me',
+                expected_outcome: 'Gives advice. Must not launch a mission.',
+                verdict: 'untested',
+                actual_route: null,
+                actual_outcome: null,
+                observed_turns: [{
+                  turn_index: 1,
+                  prompt: 'Should we use the startup operator more?',
+                  reply: null,
+                  reply_timestamp: null
+                }],
+                side_effects: {
+                  files_changed: null,
+                  memory_written: null,
+                  mission_started: null,
+                  external_network_called: null,
+                  pr_opened: null,
+                  publish_or_deploy_started: null,
+                  schedule_changed: null,
+                  tool_or_browser_used: null
+                },
+                evidence_refs: {
+                  authorization_ledgers: [],
+                  tool_ledgers: [],
+                  traces: [],
+                  runtime_status: [],
+                  screenshots: [],
+                  commits: [],
+                  prs: []
+                },
+                issue: null,
+                fix_commit: null,
+                retest_required: false
+              }]
             });
             const component = {
               schema_version: 'harness-component-v1',
@@ -171,6 +309,76 @@ class TypeScriptContractTests(unittest.TestCase):
               verdict: 'promote_private',
               summary: 'Accepted Telegram adapter change is ready for private promotion.'
             });
+            const runnerEvolution = core.createHarnessCoreChangeManifestRunner({
+              id: 'telegram-evidence-runner',
+              mode: 'promote',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['npm test'],
+              change_manifests: [acceptedManifest],
+              requested_verdict: 'promote_private'
+            });
+            const protectedComponent = {
+              schema_version: 'harness-component-v1',
+              component_id: 'component:authority-policy',
+              component_type: 'authority_policy',
+              owner_repo: 'spark-harness-core',
+              path: 'src/spark_harness_core/kernel.py',
+              summary: 'Protected authority policy.',
+              editable_by_evolution: false,
+              authority_scope: ['telegram'],
+              dependencies: ['spark-harness-core'],
+              tests: ['python3 -m unittest discover -s tests']
+            };
+            const unsafeProtectedComponent = {
+              ...protectedComponent,
+              component_id: 'component:verifier',
+              component_type: 'verifier',
+              path: 'tests/test_kernel_contracts.py',
+              summary: 'Protected verifier must not be self-editable.',
+              editable_by_evolution: true
+            };
+            let blockedEditableProtectedComponentError = '';
+            try {
+              core.assertHarnessCoreComponentEditablePolicy(unsafeProtectedComponent);
+            } catch (error) {
+              blockedEditableProtectedComponentError = error instanceof Error ? error.message : String(error);
+            }
+            let blockedEditableProtectedRunError = '';
+            try {
+              core.createHarnessCoreSelfEvolutionRun({
+                id: 'unsafe-verifier-observe',
+                mode: 'observe',
+                surface: 'telegram',
+                experience_index: experience,
+                readiness_score: readiness,
+                commands: ['python3 -m unittest discover -s tests'],
+                target_components: [unsafeProtectedComponent]
+              });
+            } catch (error) {
+              blockedEditableProtectedRunError = error instanceof Error ? error.message : String(error);
+            }
+            const protectedObserve = core.createHarnessCoreSelfEvolutionRun({
+              id: 'authority-policy-observe',
+              mode: 'observe',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['python3 -m unittest discover -s tests'],
+              target_components: [protectedComponent]
+            });
+            const protectedRunner = core.createHarnessCoreChangeManifestRunner({
+              id: 'authority-policy-runner',
+              mode: 'promote',
+              surface: 'telegram',
+              experience_index: experience,
+              readiness_score: readiness,
+              commands: ['python3 -m unittest discover -s tests'],
+              target_components: [protectedComponent],
+              change_manifests: [],
+              requested_verdict: 'promote_private'
+            });
             const envelope = core.createHarnessCoreActionEnvelopeVNext({
               surface: 'spawner',
               ownerSystem: 'spawner-ui',
@@ -181,21 +389,235 @@ class TypeScriptContractTests(unittest.TestCase):
               requestId: 'dispatch-vnext-test',
               target: 'mission-vnext-test'
             });
+            const machineEnvelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'spawner',
+              ownerSystem: 'spawner-ui',
+              toolName: 'spawner.dispatch',
+              mutationClass: 'launches_mission',
+              source: 'spawner-scheduler',
+              reason: 'Machine scheduler proposed a dispatch without a fresh user turn.',
+              requestId: 'dispatch-machine-vnext-test',
+              actorKind: 'system',
+              target: 'mission-vnext-test'
+            });
+            const machineGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: machineEnvelope,
+              tool_name: 'spawner.dispatch'
+            });
+            const action = envelope.proposed_actions[0];
+            const authorization = {
+              schema_version: 'authorization-decision-v1',
+              decision_id: 'decision:spawner-dispatch',
+              created_at: '2026-06-02T00:00:00.000Z',
+              turn_id: envelope.turn_id,
+              action_id: action.action_id,
+              capability_id: action.capability_id,
+              verdict: 'allow',
+              risk_tier: action.risk_tier,
+              reasons: ['harness_core_authorized'],
+              evidence: envelope.evidence,
+              approval: { required: false, status: 'not_required' },
+              restrictions: {
+                network_allowed: false,
+                write_allowed: false,
+                publish_allowed: false
+              },
+              trace
+            };
+            const governorDecision = core.createHarnessCoreGovernorDecision({
+              envelope,
+              authorizations: [authorization]
+            });
+            const authorizedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              restrictions: {
+                network_allowed: false,
+                write_allowed: true,
+                publish_allowed: false
+              }
+            });
+            const finalizedAuthorizedLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: authorizedGovernorDecision.tool_ledgers[0],
+              status: 'success',
+              summary: 'Spawner dispatch completed after Governor allow authorization.',
+              output_path_or_uri: 'spawner://missions/dispatch-vnext-test/result'
+            });
+            const governorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: authorizedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            const unsignedKeyedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: authorizedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret'
+            });
+            const signedGovernorDecision = core.signHarnessCoreGovernorDecision(authorizedGovernorDecision, {
+              key: 'test-secret',
+              key_id: 'local-test',
+              nonce: 'nonce:test-governor',
+              created_at: '2026-06-07T00:00:00.000Z'
+            });
+            const signedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: signedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret',
+              governor_hmac_key_id: 'local-test'
+            });
+            const tamperedSignedGovernorDecision = JSON.parse(JSON.stringify(signedGovernorDecision));
+            tamperedSignedGovernorDecision.tool_ledgers[0].tool_name = 'spawner.dispatch.forged';
+            const tamperedSignedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: tamperedSignedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              governor_hmac_key: 'test-secret',
+              governor_hmac_key_id: 'local-test'
+            });
+            const boundLedgerRow = core.boundHarnessCoreLedgerRow({
+              ledger: authorizedGovernorDecision.tool_ledgers[0],
+              verdict: governorConsumerVerification,
+              owner_system: 'spawner-ui',
+              mutation_class: 'launches_mission',
+              surface: 'spawner',
+              request_id: 'dispatch-vnext-test',
+              trace_ref: 'trace:dispatch-vnext-test'
+            });
+            const copiedGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            copiedGovernorDecision.tool_ledgers[0].action_id = 'action:copied-stale-ledger';
+            copiedGovernorDecision.tool_ledgers[0].authorization.action_id = 'action:copied-stale-ledger';
+            const copiedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: copiedGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            const unboundFreshEnvelope = JSON.parse(JSON.stringify(envelope));
+            unboundFreshEnvelope.freshness.fresh_user_intent_ref = {
+              ...unboundFreshEnvelope.freshness.fresh_user_intent_ref,
+              id: 'evidence:forged_fresh_intent'
+            };
+            const unboundFreshGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: unboundFreshEnvelope,
+              tool_name: 'spawner.dispatch'
+            });
+            const unboundFreshVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: unboundFreshGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission'
+            });
+            const expiringGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            expiringGovernorDecision.authorizations[0].expires_at = '2026-06-09T12:00:00Z';
+            const expiredAuthorizationVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: expiringGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T12:00:00Z'
+            });
+            const unexpiredAuthorizationVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: expiringGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:00:00Z'
+            });
+            let copiedLedgerError = '';
+            try {
+              const copiedLedger = JSON.parse(JSON.stringify(authorizedGovernorDecision.tool_ledgers[0]));
+              copiedLedger.action_id = 'action:copied-stale-ledger';
+              core.finalizeHarnessCoreToolCallLedger({
+                ledger: copiedLedger,
+                status: 'success',
+                summary: 'Copied ledger must not finalize as execution proof.',
+                output_path_or_uri: 'spawner://missions/copied-ledger/result'
+              });
+            } catch (error) {
+              copiedLedgerError = String(error && error.message || error);
+            }
+            const interruptedEnvelope = core.createHarnessCoreActionEnvelopeVNext({
+              surface: 'telegram',
+              ownerSystem: 'spark-publisher',
+              toolName: 'spark.publish',
+              mutationClass: 'publishes',
+              source: 'telegram',
+              reason: 'Publishing requires explicit approval before execution.',
+              requestId: 'publish-vnext-test'
+            });
+            const interruptedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope: interruptedEnvelope,
+              tool_name: 'spark.publish'
+            });
+            let blockedFinalizeError = '';
+            try {
+              core.finalizeHarnessCoreToolCallLedger({
+                ledger: interruptedGovernorDecision.tool_ledgers[0],
+                status: 'success',
+                summary: 'This must not be representable before approval.',
+                output_path_or_uri: 'telegram://publish/success'
+              });
+            } catch (error) {
+              blockedFinalizeError = String(error && error.message || error);
+            }
+            const interruptedNotStartedLedger = core.finalizeHarnessCoreToolCallLedger({
+              ledger: interruptedGovernorDecision.tool_ledgers[0],
+              status: 'not_started',
+              summary: 'Publish was interrupted before execution.',
+              output_path_or_uri: 'telegram://publish/not-started'
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
               artifact,
               evidence,
               readiness,
+              readinessWithLegacyBlocker,
               experience,
               registry,
               evaluation,
               run,
+              legacyInventory,
+              blockedLegacyPlaneError,
+              telegramLiveQaPacket,
               manifest,
               acceptedManifest,
               blockedPromotion,
               selfEvolution,
-              envelope
+              runnerEvolution,
+              protectedComponentIsProtected: core.isHarnessCoreProtectedComponentType('authority_policy'),
+              adapterComponentIsProtected: core.isHarnessCoreProtectedComponentType('middleware'),
+              blockedEditableProtectedComponentError,
+              blockedEditableProtectedRunError,
+              protectedObserve,
+              protectedRunner,
+              envelope,
+              machineEnvelope,
+              machineGovernorDecision,
+              governorDecision,
+              authorizedGovernorDecision,
+              finalizedAuthorizedLedger,
+              governorConsumerVerification,
+              unsignedKeyedGovernorConsumerVerification,
+              signedGovernorDecision,
+              signedGovernorConsumerVerification,
+              tamperedSignedGovernorConsumerVerification,
+              boundLedgerRow,
+              copiedGovernorConsumerVerification,
+              unboundFreshGovernorDecision,
+              unboundFreshVerification,
+              expiredAuthorizationVerification,
+              unexpiredAuthorizationVerification,
+              copiedLedgerError,
+              interruptedGovernorDecision,
+              blockedFinalizeError,
+              interruptedNotStartedLedger
             }));
             """
         )
@@ -213,26 +635,111 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["evidence"]["kind"], "fresh_user_intent")
         self.assertEqual(payload["readiness"]["schema_version"], "readiness-score-v1")
         self.assertEqual(payload["readiness"]["overall"]["status"], "release_candidate")
+        self.assertEqual(payload["readinessWithLegacyBlocker"]["overall"]["status"], "blocked")
         self.assertEqual(payload["experience"]["entries"][0]["entry_type"], "test_result")
         self.assertEqual(payload["registry"]["resources"][0]["resource_type"], "harness_spec")
         self.assertEqual(payload["evaluation"]["schema_version"], "evaluation-pack-v1")
         self.assertEqual(payload["evaluation"]["cases"][0]["expected_authority_state"], "chat_only")
         self.assertEqual(payload["run"]["schema_version"], "harness-run-v1")
         self.assertEqual(payload["run"]["verdict"]["status"], "passed")
+        self.assertEqual(payload["legacyInventory"]["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(payload["legacyInventory"]["summary"]["removed_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["canonical_consumer_count"], 0)
+        self.assertEqual(payload["legacyInventory"]["summary"]["evidence_adapter_count"], 1)
+        self.assertEqual(payload["legacyInventory"]["summary"]["high_agency_risk_count"], 0)
+        self.assertTrue(payload["legacyInventory"]["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertIn("evidence adapters cannot retain high-agency", payload["blockedLegacyPlaneError"])
+        self.assertEqual(payload["telegramLiveQaPacket"]["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
+        self.assertEqual(payload["telegramLiveQaPacket"]["selection"]["case_count"], 1)
+        self.assertEqual(payload["telegramLiveQaPacket"]["summary"]["untested"], 1)
+        self.assertEqual(payload["telegramLiveQaPacket"]["required_session_evidence"]["profile"], "sparkqa-bot")
+        self.assertEqual(payload["telegramLiveQaPacket"]["required_session_evidence"]["remaining_risks"], ["100 live prompts still incomplete"])
         self.assertEqual(payload["manifest"]["schema_version"], "change-manifest-v1")
         self.assertTrue(payload["manifest"]["live_proof_required"])
         self.assertEqual(payload["acceptedManifest"]["verdict"], "accepted")
         self.assertIn("accepted change manifests", payload["blockedPromotion"])
         self.assertEqual(payload["selfEvolution"]["schema_version"], "self-evolution-run-v1")
         self.assertEqual(payload["selfEvolution"]["promotion_decision"]["verdict"], "promote_private")
+        self.assertEqual(payload["runnerEvolution"]["promotion_decision"]["verdict"], "promote_private")
+        self.assertIn("accepted_change_manifests_ready", payload["runnerEvolution"]["promotion_decision"]["summary"])
+        self.assertTrue(payload["protectedComponentIsProtected"])
+        self.assertFalse(payload["adapterComponentIsProtected"])
+        self.assertIn("cannot be marked editable_by_evolution", payload["blockedEditableProtectedComponentError"])
+        self.assertIn("cannot be marked editable_by_evolution", payload["blockedEditableProtectedRunError"])
+        self.assertEqual(payload["protectedObserve"]["promotion_decision"]["verdict"], "not_ready")
+        self.assertEqual(payload["protectedRunner"]["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("protected_component_requires_approval", payload["protectedRunner"]["promotion_decision"]["summary"])
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")
+        self.assertEqual(payload["envelope"]["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
         self.assertEqual(
             payload["envelope"]["proposed_actions"][0]["capability_id"],
             "capability:spawner-ui:spawner.dispatch",
         )
         self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "launch_mission")
+        self.assertEqual(payload["machineEnvelope"]["selected_move"], "prepare_action")
+        self.assertEqual(payload["machineEnvelope"]["action_authority"]["state"], "prepare_allowed")
+        self.assertFalse(payload["machineEnvelope"]["freshness"]["fresh_user_intent_present"])
+        self.assertIsNone(payload["machineEnvelope"]["freshness"]["fresh_user_intent_ref"])
+        self.assertEqual(payload["machineGovernorDecision"]["authorizations"][0]["verdict"], "deny")
+        self.assertIn("envelope_not_executable", payload["machineGovernorDecision"]["authorizations"][0]["reasons"])
+        self.assertEqual(payload["governorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["governorDecision"]["outcome"], "degrade")
+        self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
+        self.assertEqual(payload["governorDecision"]["execution_boundary"]["authorized_action_count"], 1)
+        self.assertFalse(payload["governorDecision"]["execution_boundary"]["action_authorized"])
+        self.assertIn(
+            "governor_missing_tool_ledger_for_authorized_execution",
+            payload["governorDecision"]["execution_boundary"]["reasons"],
+        )
+        self.assertEqual(payload["authorizedGovernorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["authorizedGovernorDecision"]["outcome"], "execute")
+        self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["verdict"], "allow")
+        self.assertEqual(payload["authorizedGovernorDecision"]["tool_ledgers"][0]["tool_name"], "spawner.dispatch")
+        self.assertEqual(
+            payload["authorizedGovernorDecision"]["tool_ledgers"][0]["authorization"]["capability_id"],
+            "capability:spawner-ui:spawner.dispatch",
+        )
+        self.assertEqual(payload["finalizedAuthorizedLedger"]["result"]["status"], "success")
+        self.assertEqual(payload["finalizedAuthorizedLedger"]["lifecycle"][-1]["verdict"], "passed")
+        self.assertTrue(payload["governorConsumerVerification"]["allowed"])
+        self.assertEqual(payload["governorConsumerVerification"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertFalse(payload["unsignedKeyedGovernorConsumerVerification"]["allowed"])
+        self.assertIn("governor_signature_missing", payload["unsignedKeyedGovernorConsumerVerification"]["reason_codes"])
+        self.assertRegex(payload["signedGovernorDecision"]["signature"]["signature"], r"^[0-9a-f]{64}$")
+        self.assertEqual(payload["signedGovernorDecision"]["signature"]["key_id"], "local-test")
+        self.assertTrue(payload["signedGovernorConsumerVerification"]["allowed"])
+        self.assertEqual(payload["signedGovernorConsumerVerification"]["reason_codes"], [])
+        self.assertFalse(payload["tamperedSignedGovernorConsumerVerification"]["allowed"])
+        self.assertIn("governor_signature_invalid", payload["tamperedSignedGovernorConsumerVerification"]["reason_codes"])
+        self.assertEqual(payload["boundLedgerRow"]["turn_id"], payload["authorizedGovernorDecision"]["turn_id"])
+        self.assertEqual(
+            payload["boundLedgerRow"]["authorization_decision_id"],
+            payload["authorizedGovernorDecision"]["authorizations"][0]["decision_id"],
+        )
+        self.assertEqual(payload["boundLedgerRow"]["ledger_id"], payload["authorizedGovernorDecision"]["tool_ledgers"][0]["ledger_id"])
+        self.assertEqual(payload["boundLedgerRow"]["status"], "not_started")
+        self.assertEqual(payload["boundLedgerRow"]["owner_system"], "spawner-ui")
+        self.assertEqual(payload["boundLedgerRow"]["mutation_class"], "launches_mission")
+        self.assertFalse(payload["copiedGovernorConsumerVerification"]["allowed"])
+        self.assertIn(
+            "governor_missing_matching_tool_ledger",
+            payload["copiedGovernorConsumerVerification"]["reason_codes"],
+        )
+        self.assertEqual(payload["unboundFreshGovernorDecision"]["outcome"], "deny")
+        self.assertEqual(payload["unboundFreshGovernorDecision"]["authorizations"][0]["verdict"], "deny")
+        self.assertIn("fresh_user_intent_evidence_unbound", payload["unboundFreshVerification"]["reason_codes"])
+        self.assertFalse(payload["expiredAuthorizationVerification"]["allowed"])
+        self.assertIn("authorization_expired", payload["expiredAuthorizationVerification"]["reason_codes"])
+        self.assertTrue(payload["unexpiredAuthorizationVerification"]["allowed"])
+        self.assertEqual(payload["unexpiredAuthorizationVerification"]["reason_codes"], [])
+        self.assertIn("authorization binding mismatch", payload["copiedLedgerError"])
+        self.assertEqual(payload["interruptedGovernorDecision"]["outcome"], "interrupt")
+        self.assertEqual(payload["interruptedGovernorDecision"]["authorizations"][0]["verdict"], "interrupt")
+        self.assertIn("allow authorization", payload["blockedFinalizeError"])
+        self.assertEqual(payload["interruptedNotStartedLedger"]["result"]["status"], "not_started")
+        self.assertEqual(payload["interruptedNotStartedLedger"]["lifecycle"][-1]["verdict"], "skipped")
 
     def test_esm_package_face_exports_action_envelope_helper(self) -> None:
         script = textwrap.dedent(
@@ -248,7 +755,10 @@ class TypeScriptContractTests(unittest.TestCase):
                 reason: 'User scheduled a Spark action.',
                 requestId: 'schedule-vnext-test'
               });
-              console.log(JSON.stringify(envelope));
+              console.log(JSON.stringify({
+                envelope,
+                hasFinalizer: typeof core.finalizeHarnessCoreToolCallLedger === 'function'
+              }));
             })().catch((error) => {
               console.error(error);
               process.exit(1);
@@ -263,9 +773,10 @@ class TypeScriptContractTests(unittest.TestCase):
             text=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["schema_version"], "turn-intent-envelope-vnext")
-        self.assertEqual(payload["surface"], "spawner")
-        self.assertEqual(payload["proposed_actions"][0]["action_type"], "schedule")
+        self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(payload["envelope"]["surface"], "spawner")
+        self.assertEqual(payload["envelope"]["proposed_actions"][0]["action_type"], "schedule")
+        self.assertTrue(payload["hasFinalizer"])
 
 
 if __name__ == "__main__":

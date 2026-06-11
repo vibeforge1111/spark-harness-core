@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.local/schemas/governor-consumer-verification-v1.schema.json",
+  "title": "Spark Governor Consumer Verification V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "allowed",
+    "reason_codes",
+    "source_kind",
+    "decision_id",
+    "turn_id",
+    "outcome",
+    "expected_capability_id",
+    "expected_action_type",
+    "tool_name",
+    "action_id",
+    "capability_id",
+    "authorization_decision_id",
+    "ledger_id"
+  ],
+  "properties": {
+    "schema_version": { "const": "governor-consumer-verification-v1" },
+    "allowed": { "type": "boolean" },
+    "reason_codes": {
+      "type": "array",
+      "items": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+    },
+    "source_kind": {
+      "type": "string",
+      "enum": ["governor_decision", "missing_governor_decision"]
+    },
+    "decision_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "turn_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "outcome": {
+      "type": ["string", "null"],
+      "enum": ["chat_only", "read_only", "prepare", "execute", "interrupt", "deny", "degrade", null]
+    },
+    "expected_capability_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "expected_action_type": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        { "type": "null" }
+      ]
+    },
+    "tool_name": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" },
+        { "type": "null" }
+      ]
+    },
+    "action_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "capability_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "authorization_decision_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    },
+    "ledger_id": {
+      "anyOf": [
+        { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "allowed": { "const": true } },
+        "required": ["allowed"]
+      },
+      "then": {
+        "properties": {
+          "reason_codes": { "maxItems": 0 },
+          "source_kind": { "const": "governor_decision" },
+          "decision_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "turn_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "outcome": { "enum": ["execute", "read_only"] },
+          "expected_capability_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "action_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "capability_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
+          "authorization_decision_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "source_kind": { "const": "missing_governor_decision" } },
+        "required": ["source_kind"]
+      },
+      "then": {
+        "properties": {
+          "allowed": { "const": false },
+          "decision_id": { "type": "null" },
+          "turn_id": { "type": "null" },
+          "outcome": { "type": "null" },
+          "action_id": { "type": "null" },
+          "capability_id": { "type": "null" },
+          "authorization_decision_id": { "type": "null" },
+          "ledger_id": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

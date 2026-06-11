@@ -71,6 +71,11 @@ def check_all_schemas() -> None:
 
 def validate_instance(schema_name_or_id: str, instance: dict[str, Any]) -> dict[str, Any]:
     schema = load_schema(schema_name_or_id)
+    return validate_schema_ref(schema["$id"], instance)
+
+
+def validate_schema_ref(schema_ref: str, instance: dict[str, Any]) -> dict[str, Any]:
+    schema = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": schema_ref}
     validator = Draft202012Validator(schema, registry=schema_registry())
     errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.path))
     if errors:

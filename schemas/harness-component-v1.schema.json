@@ -59,6 +59,23 @@
       "minItems": 1
     },
     "rollback_ref": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/artifactRef" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "component_type": {
+            "enum": ["verifier", "benchmark", "model_config", "authority_policy"]
+          }
+        },
+        "required": ["component_type"]
+      },
+      "then": {
+        "properties": {
+          "editable_by_evolution": { "const": false }
+        },
+        "required": ["editable_by_evolution"]
+      }
+    }
+  ]
 }
-

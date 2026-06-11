@@ -1,0 +1,30 @@
+rules:
+  - id: spark-harness-core-python-eval
+    languages:
+      - python
+    severity: ERROR
+    message: Avoid eval in harness-core code. Use structured parsing instead.
+    pattern: eval(...)
+
+  - id: spark-harness-core-python-exec
+    languages:
+      - python
+    severity: ERROR
+    message: Avoid exec in harness-core code. Keep authority logic inspectable.
+    pattern: exec(...)
+
+  - id: spark-harness-core-js-eval
+    languages:
+      - javascript
+      - typescript
+    severity: ERROR
+    message: Avoid eval in harness-core TypeScript. Use explicit parsing instead.
+    pattern: eval(...)
+
+  - id: spark-harness-core-js-function-constructor
+    languages:
+      - javascript
+      - typescript
+    severity: ERROR
+    message: Avoid dynamic Function constructors in harness-core TypeScript.
+    pattern: new Function(...)

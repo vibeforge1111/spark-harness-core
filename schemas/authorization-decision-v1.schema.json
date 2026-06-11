@@ -92,8 +92,11 @@
     },
     {
       "if": {
-        "properties": { "risk_tier": { "enum": ["high", "critical"] } },
-        "required": ["risk_tier"]
+        "properties": {
+          "verdict": { "enum": ["allow", "interrupt"] },
+          "risk_tier": { "enum": ["high", "critical"] }
+        },
+        "required": ["verdict", "risk_tier"]
       },
       "then": {
         "properties": {
@@ -107,4 +110,3 @@
     }
   ]
 }
-

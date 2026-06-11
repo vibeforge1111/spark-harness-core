@@ -10,7 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, evidence_ref
+from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, bound_ledger_row, evidence_ref
+from spark_harness_core.governor_signature import sign_governor_decision
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
     authorize_tool_call,
@@ -19,6 +20,7 @@ from spark_harness_core.legacy_turn_intent import (
     build_vnext_tool_intent_envelope,
     finalize_legacy_tool_call_ledger,
     parse_turn_intent_envelope,
+    verify_governor_tool_authority,
 )
 from spark_harness_core.cli import _parse_category_score, _parse_gate, main as cli_main
 from spark_harness_core.schemas import check_all_schemas, load_schema, validate_instance
@@ -155,6 +157,7 @@ class KernelContractTests(unittest.TestCase):
             confidence=0.93,
         )
         self.assertEqual(envelope["selected_move"], "execute_action")
+        self.assertEqual(envelope["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
 
         invalid = clone(envelope)
         invalid["action_authority"]["state"] = "chat_only"
@@ -183,6 +186,346 @@ class KernelContractTests(unittest.TestCase):
         decision = kernel.authorize(envelope, action)
         self.assertEqual(decision["verdict"], "interrupt")
         self.assertTrue(decision["approval"]["required"])
+
+    def test_governor_decision_keeps_chat_only_turns_non_executing(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        envelope = kernel.create_envelope(
+            selected_move="chat_explain",
+            intent_summary="User is discussing build, memory, and publish as examples.",
+            raw_turn_summary="Action words are present as discussion vocabulary.",
+            confidence=0.87,
+        )
+        decision = kernel.governor_decision(envelope)
+        self.assertEqual(decision["schema_version"], "governor-decision-v1")
+        self.assertEqual(decision["outcome"], "chat_only")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertEqual(decision["execution_boundary"]["action_count"], 0)
+        self.assertTrue(decision["execution_boundary"]["legacy_authority_demoted"])
+        self.assertEqual(decision["reply_contract"]["style"], "human_conversational")
+        self.assertFalse(decision["reply_contract"]["should_interrupt"])
+
+    def test_governor_decision_executes_only_after_authorization(self) -> None:
+        kernel = HarnessKernel(surface="cli")
+        action = kernel.proposed_action(
+            capability_id="capability:schema-validation",
+            action_type="run_command",
+            risk_tier="low",
+            summary="Run local schema validation.",
+            args_path="experience/private/validate-args.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked for schema validation.",
+            raw_turn_summary="Run schema validation.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.94,
+        )
+        authorization = kernel.authorize(envelope, action)
+        missing_ledger_decision = kernel.governor_decision(envelope, authorizations=[authorization])
+        self.assertEqual(missing_ledger_decision["outcome"], "degrade")
+        self.assertFalse(missing_ledger_decision["execution_boundary"]["action_authorized"])
+        self.assertIn(
+            "governor_missing_tool_ledger_for_authorized_execution",
+            missing_ledger_decision["execution_boundary"]["reasons"],
+        )
+
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="spark-harness-core.validate",
+            status="not_started",
+            output_path="experience/private/not-started.json",
+            summary="Execution is authorized but not started in this proof.",
+        )
+        decision = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+        self.assertEqual(decision["outcome"], "execute")
+        self.assertTrue(decision["execution_boundary"]["action_authorized"])
+        self.assertEqual(decision["execution_boundary"]["authorized_action_count"], 1)
+        self.assertEqual(decision["tool_ledgers"][0]["result"]["status"], "not_started")
+
+        invalid = clone(decision)
+        invalid["tool_ledgers"] = []
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", invalid)
+
+    def test_governor_consumer_verifier_enforces_authorization_expiry(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write an explicit Telegram profile fact.",
+            args_path="telegram://turns/req-memory-expiry/actions/memory.write",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's favorite color.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+        )
+
+        def verify(decision: dict, *, now: str | None = None) -> dict:
+            return kernel.verify_governor_execution_authority(
+                decision,
+                expected_capability_id="capability:domain-chip-memory:memory.write",
+                expected_action_type="memory.write",
+                tool_name="domain-chip-memory.memory.write",
+                now=now,
+            )
+
+        expiring = clone(authorization)
+        expiring["expires_at"] = "2026-06-09T12:00:00Z"
+        decision = kernel.governor_decision(envelope, authorizations=[expiring], tool_ledgers=[ledger])
+
+        fresh = verify(decision, now="2026-06-09T11:00:00Z")
+        self.assertTrue(fresh["allowed"])
+        self.assertEqual(fresh["reason_codes"], [])
+
+        expired = verify(decision, now="2026-06-09T12:00:00Z")
+        self.assertFalse(expired["allowed"])
+        self.assertIn("authorization_expired", expired["reason_codes"])
+
+        past = clone(authorization)
+        past["expires_at"] = "2000-01-01T00:00:00Z"
+        past_decision = kernel.governor_decision(envelope, authorizations=[past], tool_ledgers=[ledger])
+        wall_clock_expired = verify(past_decision)
+        self.assertFalse(wall_clock_expired["allowed"])
+        self.assertIn("authorization_expired", wall_clock_expired["reason_codes"])
+
+        # Schema forbids verdict=allow with approval.status=expired, so the
+        # defense-in-depth branch is exercised on the helper directly.
+        approval_expired = clone(authorization)
+        approval_expired["approval"] = dict(approval_expired["approval"], status="expired")
+        self.assertEqual(
+            HarnessKernel._authorization_expiry_reason_code(approval_expired),
+            "authorization_approval_expired",
+        )
+        invalid_expiry = clone(authorization)
+        invalid_expiry["expires_at"] = "not-a-timestamp"
+        self.assertEqual(
+            HarnessKernel._authorization_expiry_reason_code(invalid_expiry),
+            "authorization_expiry_invalid",
+        )
+
+    def test_governor_decision_signature_is_part_of_canonical_contract(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        envelope = kernel.create_envelope(
+            selected_move="chat_explain",
+            intent_summary="User is discussing a governed action without asking for execution.",
+            raw_turn_summary="Discussion-only turn.",
+            confidence=0.88,
+        )
+        decision = kernel.governor_decision(envelope)
+        signed = clone(decision)
+        signed["signature"] = {
+            "schema_version": "governor-decision-signature-v1",
+            "alg": "hmac-sha256",
+            "key_id": "local",
+            "nonce": "nonce:test",
+            "created_at": "2026-06-07T00:00:00.000Z",
+            "signature": "a" * 64,
+        }
+        validate_instance("governor-decision-v1", signed)
+
+        malformed = clone(signed)
+        malformed["signature"]["signature"] = "not-hex"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", malformed)
+
+        extra_field = clone(signed)
+        extra_field["signature"]["extra"] = "not allowed"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("governor-decision-v1", extra_field)
+
+    def test_governor_consumer_verifier_requires_exact_tool_ledger_binding(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write an explicit Telegram profile fact.",
+            args_path="telegram://turns/req-memory-write/actions/memory.write",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's favorite color.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+        )
+        decision = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+
+        verified = kernel.verify_governor_execution_authority(
+            decision,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+        )
+
+        self.assertTrue(verified["allowed"])
+        self.assertEqual(verified["reason_codes"], [])
+        self.assertEqual(verified["action_id"], action["action_id"])
+        self.assertEqual(verified["authorization_decision_id"], authorization["decision_id"])
+        self.assertEqual(verified["ledger_id"], ledger["ledger_id"])
+
+        copied = clone(decision)
+        copied["tool_ledgers"][0]["action_id"] = "action:copied-ledger"
+        copied["tool_ledgers"][0]["authorization"]["action_id"] = "action:copied-ledger"
+        blocked = kernel.verify_governor_execution_authority(
+            copied,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+        )
+
+        self.assertFalse(blocked["allowed"])
+        self.assertIn("governor_missing_matching_tool_ledger", blocked["reason_codes"])
+
+        wrapper_verified = verify_governor_tool_authority(
+            decision,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        self.assertTrue(wrapper_verified["allowed"])
+
+        unsigned_with_key = kernel.verify_governor_execution_authority(
+            decision,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+        )
+        self.assertFalse(unsigned_with_key["allowed"])
+        self.assertIn("governor_signature_missing", unsigned_with_key["reason_codes"])
+
+        signed = sign_governor_decision(
+            decision,
+            key="test-secret",
+            key_id="local-test",
+            nonce="nonce:test-governor",
+            created_at="2026-06-07T00:00:00.000Z",
+        )
+        signed_verified = kernel.verify_governor_execution_authority(
+            signed,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertTrue(signed_verified["allowed"])
+        self.assertEqual(signed_verified["reason_codes"], [])
+
+        tampered = clone(signed)
+        tampered["tool_ledgers"][0]["tool_name"] = "domain-chip-memory.memory.delete"
+        tampered_verified = kernel.verify_governor_execution_authority(
+            tampered,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertFalse(tampered_verified["allowed"])
+        self.assertIn("governor_signature_invalid", tampered_verified["reason_codes"])
+
+        wrapper_signed_verified = verify_governor_tool_authority(
+            signed,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            governor_hmac_key="test-secret",
+            governor_hmac_key_id="local-test",
+        )
+        self.assertTrue(wrapper_signed_verified["allowed"])
+
+    def test_authority_binding_ref_evidence_is_schema_valid(self) -> None:
+        kernel = HarnessKernel(surface="memory")
+        fresh = evidence_ref("fresh_user_intent", "memory", "User explicitly authorized this memory write.")
+        ref = evidence_ref(
+            "authority_binding_ref",
+            "domain-chip-memory",
+            "spark-researcher.memory.working:C:/tmp/spark-runtime",
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly authorized a bound memory write.",
+            raw_turn_summary="Remember this project preference.",
+            evidence=[fresh, ref],
+            proposed_actions=[
+                kernel.proposed_action(
+                    capability_id="capability:domain-chip-memory:memory.write",
+                    action_type="memory.write",
+                    risk_tier="low",
+                    summary="Write a bound memory item.",
+                    args_path="memory://working.json",
+                    requires_confirmation=False,
+                )
+            ],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        self.assertEqual(envelope["evidence"][1]["kind"], "authority_binding_ref")
+
+    def test_governor_decision_interrupts_high_risk_actions(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:publish",
+            action_type="publish",
+            risk_tier="high",
+            summary="Publish a reviewed Spark release.",
+            args_path="experience/private/publish-args.json",
+            requires_confirmation=True,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="confirm_action",
+            intent_summary="User appears to request a publish action.",
+            raw_turn_summary="Publish the reviewed Spark release.",
+            proposed_actions=[action],
+            authority_state="confirmation_required",
+            risk_tier="high",
+            confidence=0.9,
+            requires_human_confirmation=True,
+        )
+        authorization = kernel.authorize(envelope, action)
+        decision = kernel.governor_decision(envelope, authorizations=[authorization])
+        self.assertEqual(decision["outcome"], "interrupt")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertTrue(decision["execution_boundary"]["requires_human_confirmation"])
+        self.assertTrue(decision["reply_contract"]["should_interrupt"])
 
     def test_authorization_sets_browser_action_restrictions_from_confirmation_boundary(self) -> None:
         kernel = HarnessKernel(surface="cli")
@@ -264,6 +607,83 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(ledger["result"]["status"], "success")
 
+        stale_decision = clone(decision)
+        stale_decision["action_id"] = "action:copied-stale-authorization"
+        with self.assertRaisesRegex(ValueError, "authorization does not match proposed action"):
+            kernel.record_tool_call(
+                envelope=envelope,
+                action=action,
+                authorization=stale_decision,
+                tool_name="python3 -m unittest",
+                status="success",
+                output_path="experience/private/unittest-output.txt",
+                summary="Copied authorization must not be accepted.",
+            )
+
+        copied_ledger = clone(ledger)
+        copied_ledger["action_id"] = "action:copied-stale-ledger"
+        with self.assertRaisesRegex(ValueError, "tool ledger authorization binding mismatch"):
+            kernel.finalize_tool_call_ledger(
+                copied_ledger,
+                status="success",
+                output_path="experience/private/copied-ledger-output.txt",
+                summary="Copied ledger must not finalize as execution proof.",
+            )
+
+    def test_tool_ledger_cannot_record_execution_without_allow_authorization(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:publish",
+            action_type="publish",
+            risk_tier="high",
+            summary="Publish a Spark release.",
+            args_path="experience/private/publish-args.json",
+            requires_confirmation=True,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="confirm_action",
+            intent_summary="User appears to request a publish action.",
+            raw_turn_summary="Publish the Spark release.",
+            proposed_actions=[action],
+            authority_state="confirmation_required",
+            risk_tier="high",
+            confidence=0.91,
+            requires_human_confirmation=True,
+        )
+        decision = kernel.authorize(envelope, action)
+        self.assertEqual(decision["verdict"], "interrupt")
+
+        with self.assertRaises(ValueError):
+            kernel.record_tool_call(
+                envelope=envelope,
+                action=action,
+                authorization=decision,
+                tool_name="spark.publish",
+                status="success",
+                output_path="experience/private/publish-output.json",
+                summary="This must not be representable before approval.",
+            )
+
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=decision,
+            tool_name="spark.publish",
+            status="not_started",
+            output_path="experience/private/publish-not-started.json",
+            summary="Publish was interrupted before execution.",
+        )
+        self.assertEqual(ledger["result"]["status"], "not_started")
+        self.assertEqual(ledger["lifecycle"][-1]["verdict"], "skipped")
+
+        with self.assertRaises(ValueError):
+            kernel.finalize_tool_call_ledger(
+                ledger,
+                status="success",
+                output_path="experience/private/publish-output.json",
+                summary="This must not be representable before approval.",
+            )
+
     def test_legacy_turn_intent_adapter_emits_vnext_authorization(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload())
         result = authorize_legacy_tool_call(
@@ -334,7 +754,8 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(envelope["surface"], "telegram")
         self.assertEqual(envelope["selected_move"], "execute_action")
         self.assertEqual(envelope["action_authority"]["state"], "executable")
-        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "write_memory")
+        self.assertEqual(envelope["proposed_actions"][0]["capability_id"], "capability:domain-chip-memory:memory.write")
+        self.assertEqual(envelope["proposed_actions"][0]["action_type"], "memory.write")
 
         result = authorize_vnext_tool_call(
             envelope,
@@ -345,6 +766,7 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(result.verdict, "allowed")
         self.assertEqual(result.reason_codes, ())
+        self.assertEqual(result.tool_call_ledger["tool_name"], "domain-chip-memory.memory.write")
 
     def test_builds_native_vnext_tool_intent_for_memory_read(self) -> None:
         envelope = build_vnext_tool_intent_envelope(
@@ -490,6 +912,130 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(result.authorization_decision["verdict"], "allow")
         self.assertEqual(result.tool_call_ledger["authorization"]["decision_id"], result.authorization_decision["decision_id"])
 
+    def test_governor_consumer_verification_is_validated_and_binds_ledger_row(self) -> None:
+        kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-bound-ledger-row",
+            source_kind="telegram_runtime_profile_fact_observation",
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Telegram memory write request summarized.",
+        )
+        action = envelope["proposed_actions"][0]
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="memory.write",
+            status="not_started",
+            output_path="builder://turns/req-bound-ledger-row/tool-ledgers/memory.write",
+            summary="Memory write has not started yet.",
+        )
+        governor = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+        verification = kernel.verify_governor_execution_authority(
+            governor,
+            expected_capability_id=action["capability_id"],
+            expected_action_type=action["action_type"],
+            tool_name="memory.write",
+        )
+
+        validate_instance("governor-consumer-verification-v1", verification)
+        self.assertTrue(verification["allowed"])
+        self.assertEqual(verification["ledger_id"], ledger["ledger_id"])
+
+        row = bound_ledger_row(
+            ledger,
+            verification,
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            surface="telegram",
+            request_id="req-bound-ledger-row",
+            trace_ref="trace:req-bound-ledger-row",
+        )
+        self.assertEqual(row["turn_id"], envelope["turn_id"])
+        self.assertEqual(row["action_id"], action["action_id"])
+        self.assertEqual(row["authorization_decision_id"], authorization["decision_id"])
+        self.assertEqual(row["ledger_id"], ledger["ledger_id"])
+        self.assertEqual(row["outcome"], "execute")
+        self.assertEqual(row["status"], "not_started")
+        self.assertEqual(row["surface"], "telegram")
+        self.assertEqual(row["request_id"], "req-bound-ledger-row")
+        self.assertEqual(row["trace_ref"], "trace:req-bound-ledger-row")
+        self.assertEqual(row["ledger_json"], ledger)
+
+    def test_vnext_freshness_requires_source_bound_human_evidence(self) -> None:
+        envelope = build_vnext_tool_intent_envelope(
+            surface="telegram",
+            actor_id_ref="human:test",
+            request_id="req-source-bound-freshness",
+            source_kind="telegram_runtime_profile_fact_observation",
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+            intent_summary="User explicitly shared a profile fact to remember.",
+            raw_turn_summary="Telegram memory write request summarized.",
+        )
+
+        self.assertEqual(envelope["actor"]["kind"], "human")
+        self.assertEqual(envelope["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
+
+        system_envelope = clone(envelope)
+        system_envelope["actor"]["kind"] = "system"
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", system_envelope)
+
+        evidence_only_envelope = clone(envelope)
+        evidence_only_envelope["freshness"]["fresh_user_intent_ref"] = evidence_only_envelope["evidence"][1]
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", evidence_only_envelope)
+
+        stale_envelope = clone(envelope)
+        stale_envelope["freshness"]["stale_state_used_as_authority"] = True
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("turn-intent-envelope-vnext", stale_envelope)
+
+        unbound_envelope = clone(envelope)
+        unbound_envelope["freshness"]["fresh_user_intent_ref"] = clone(
+            unbound_envelope["freshness"]["fresh_user_intent_ref"]
+        )
+        unbound_envelope["freshness"]["fresh_user_intent_ref"]["id"] = "evidence:forged_fresh_intent"
+        validate_instance("turn-intent-envelope-vnext", unbound_envelope)
+
+        result = authorize_vnext_tool_call(
+            unbound_envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+
+        self.assertEqual(result.verdict, "blocked")
+        self.assertIn("fresh_user_intent_evidence_unbound", result.reason_codes)
+        assert result.authorization_decision is not None
+        self.assertEqual(result.authorization_decision["verdict"], "deny")
+        self.assertFalse(result.authorization_decision["restrictions"]["write_allowed"])
+
+        kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
+        action = envelope["proposed_actions"][0]
+        copied_allow = kernel.authorize(envelope, action)
+        copied_ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=copied_allow,
+            tool_name="memory.write",
+            status="not_started",
+            output_path="builder://turns/req-source-bound-freshness/tool-ledgers/memory.write",
+            summary="Copied ledger must not make unbound freshness executable.",
+        )
+        decision = kernel.governor_decision(unbound_envelope, authorizations=[copied_allow], tool_ledgers=[copied_ledger])
+        self.assertEqual(decision["outcome"], "deny")
+        self.assertFalse(decision["execution_boundary"]["action_authorized"])
+        self.assertIn("fresh_user_intent_evidence_unbound", decision["execution_boundary"]["reasons"])
+
     def test_blocks_native_vnext_without_matching_proposed_action(self) -> None:
         legacy = parse_turn_intent_envelope(legacy_envelope_payload())
         converted = authorize_legacy_tool_call(
@@ -601,6 +1147,8 @@ class KernelContractTests(unittest.TestCase):
                 "network_absorbable": False,
                 "telegram_live_proven": False,
                 "startup_benchmark_proven": False,
+                "performance_budget_proven": False,
+                "governance_rulesets_proven": False,
                 "zero_high_agency_legacy_local_gates": True,
             },
             "overall": {
@@ -615,6 +1163,80 @@ class KernelContractTests(unittest.TestCase):
         del invalid["categories"]["governance"]
         with self.assertRaises(SchemaValidationError):
             validate_instance("readiness-score-v1", invalid)
+
+    def test_readiness_release_candidate_requires_performance_budget(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 1.0
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+
+        self.assertEqual(readiness["promotion_gates"]["performance_budget_proven"], False)
+        self.assertEqual(readiness["overall"]["status"], "private_ready")
+
+    def test_readiness_release_candidate_requires_governance_rulesets(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 1.0
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+
+        readiness = kernel.readiness_score(
+            target_kind="release",
+            target_id="release:genesis-harness",
+            owner_repo="spark-cli",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+
+        self.assertEqual(readiness["promotion_gates"]["governance_rulesets_proven"], False)
+        self.assertEqual(readiness["overall"]["status"], "private_ready")
+
+    def test_readiness_release_candidate_requires_legacy_cleanup_proof(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 1.0
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+
+        readiness = kernel.readiness_score(
+            target_kind="release",
+            target_id="release:genesis-harness",
+            owner_repo="spark-harness-core",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": False,
+            },
+        )
+
+        self.assertEqual(readiness["overall"]["status"], "blocked")
 
     def test_surface_spec_keeps_runtime_logic_inspectable(self) -> None:
         spec = {
@@ -691,6 +1313,8 @@ class KernelContractTests(unittest.TestCase):
             promotion_gates={
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -704,6 +1328,48 @@ class KernelContractTests(unittest.TestCase):
             summary="Observed kernel evidence without promoting changes.",
         )
         self.assertEqual(evolution["promotion_decision"]["verdict"], "not_ready")
+
+    def test_kernel_validates_standalone_schema_fragments(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        artifact = artifact_ref("test_result", "experience/kernel-tests.json", "Kernel test result.")
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.proposed_action(
+                capability_id="capability:test",
+                action_type="unknown_action",
+                risk_tier="low",
+                summary="Invalid action type.",
+                args_path="experience/args.json",
+                requires_confirmation=False,
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.resource(
+                resource_id="resource:invalid",
+                resource_type="unknown_resource",
+                owner_repo="spark-harness-core",
+                version="0.1.0",
+                tests=["python -m pytest"],
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.experience_entry(
+                entry_type="unknown_entry",
+                summary="Invalid entry type.",
+                artifact=artifact,
+            )
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.metric(name="", value=True)
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.evaluation_case(
+                case_id="case:invalid",
+                case_type="negative_intent",
+                prompt_ref=artifact,
+                expected_move="chat_explain",
+                expected_authority_state="unknown_state",
+            )
 
     def test_self_evolution_promotion_requires_accepted_manifest_and_readiness(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
@@ -721,6 +1387,8 @@ class KernelContractTests(unittest.TestCase):
             promotion_gates={
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -814,6 +1482,8 @@ class KernelContractTests(unittest.TestCase):
             promotion_gates={
                 "telegram_live_proven": True,
                 "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
                 "zero_high_agency_legacy_local_gates": True,
             },
         )
@@ -851,6 +1521,157 @@ class KernelContractTests(unittest.TestCase):
                 live_surface_required=True,
             )
 
+    def test_change_manifest_runner_promotes_ready_accepted_batch(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.9
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index()
+        component = kernel.component(
+            component_id="component:telegram-evidence-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/harnessCore.ts",
+            summary="Telegram evidence adapter.",
+            tests=["npm test"],
+        )
+        manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="Telegram needs a canonical evidence adapter.",
+            edit_summary="Route through Harness Core records.",
+            predicted_fixes=["High-agency Telegram actions use Harness Core authority."],
+            predicted_regression_risks=["Under-specified actions may now be rejected."],
+            required_tests=["npm test"],
+            rollback_plan="Revert the adapter change.",
+            observed_delta=[kernel.metric(name="route_matrix_pass", value=True)],
+            verdict="accepted",
+        )
+
+        run = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["npm test"],
+            change_manifests=[manifest],
+            requested_verdict="promote_private",
+        )
+
+        self.assertEqual(run["promotion_decision"]["verdict"], "promote_private")
+        self.assertIn("accepted_change_manifests_ready", run["promotion_decision"]["summary"])
+        self.assertEqual(run["target_components"][0]["component_id"], component["component_id"])
+        validate_instance("self-evolution-run-v1", run)
+
+    def test_change_manifest_runner_returns_not_ready_for_live_or_protected_batches(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence()]
+        categories = {
+            name: 0.9
+            for name in ("execution", "tools", "context", "lifecycle", "observability", "verification", "governance")
+        }
+        readiness = kernel.readiness_score(
+            target_kind="surface",
+            target_id="surface:telegram",
+            owner_repo="spark-telegram-bot",
+            category_scores=categories,
+            category_evidence={name: evidence for name in categories},
+            promotion_gates={
+                "telegram_live_proven": True,
+                "startup_benchmark_proven": True,
+                "performance_budget_proven": True,
+                "governance_rulesets_proven": True,
+                "zero_high_agency_legacy_local_gates": True,
+            },
+        )
+        experience = kernel.experience_index()
+        component = kernel.component(
+            component_id="component:telegram-live-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/index.ts",
+            summary="Telegram live adapter.",
+            tests=["npm test"],
+        )
+        live_manifest = kernel.change_manifest(
+            target_component=component,
+            failure_evidence=evidence,
+            root_cause_hypothesis="Live proof is still required.",
+            edit_summary="Prepare live proof wiring.",
+            predicted_fixes=["Live evidence gets attached."],
+            predicted_regression_risks=["Live route drift may appear."],
+            required_tests=["npm test"],
+            rollback_plan="Revert live proof wiring.",
+            live_proof_required=True,
+            verdict="accepted",
+        )
+        live_run = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["npm test"],
+            change_manifests=[live_manifest],
+            requested_verdict="promote_private",
+            live_surface_required=True,
+        )
+        self.assertEqual(live_run["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("live_proof_still_required", live_run["promotion_decision"]["summary"])
+
+        protected_component = kernel.component(
+            component_id="component:authority-policy",
+            component_type="authority_policy",
+            owner_repo="spark-harness-core",
+            path="src/spark_harness_core/kernel.py",
+            summary="Protected authority policy.",
+            tests=["python3 -m unittest discover -s tests"],
+        )
+        observe_run = kernel.self_evolution_run(
+            mode="observe",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["python3 -m unittest discover -s tests"],
+            target_components=[protected_component],
+        )
+        self.assertEqual(observe_run["promotion_decision"]["verdict"], "not_ready")
+
+        protected_runner = kernel.change_manifest_runner(
+            mode="promote",
+            experience_index=experience,
+            readiness_score=readiness,
+            commands=["python3 -m unittest discover -s tests"],
+            target_components=[protected_component],
+            change_manifests=[],
+            requested_verdict="promote_private",
+        )
+        self.assertEqual(protected_runner["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn("protected_component_requires_approval", protected_runner["promotion_decision"]["summary"])
+
+        with self.assertRaises(ValueError):
+            kernel.self_evolution_run(
+                mode="promote",
+                experience_index=experience,
+                readiness_score=readiness,
+                commands=["python3 -m unittest discover -s tests"],
+                target_components=[protected_component],
+                change_manifests=[],
+                verdict="promote_private",
+            )
+
     def test_kernel_builds_evaluation_pack_and_harness_run_records(self) -> None:
         kernel = HarnessKernel(surface="telegram")
         prompt = artifact_ref("prompt", "eval/prompts/telegram-meta-build.txt", "Redacted Telegram prompt.")
@@ -883,6 +1704,166 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(run["verdict"]["status"], "passed")
         validate_instance("harness-run-v1", run)
+
+    def test_kernel_builds_telegram_live_qa_evidence_packet(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        case = kernel.telegram_live_qa_case(
+            ordinal=1,
+            case_id="genesis-001",
+            suite="genesis_normal_conversation",
+            risk="safe",
+            expected_route="chat_think_with_me",
+            expected_outcome="Gives advice. Must not launch a mission.",
+            prompts=["Should we use the startup operator more?"],
+        )
+        packet = kernel.telegram_live_qa_evidence_packet(
+            cases=[case],
+            catalog="genesis-live-telegram-100.json",
+            title="Spark Genesis Telegram Live QA Evidence Packet",
+            include_risky=True,
+            required_session_evidence={
+                "profile": "sparkqa-bot",
+                "tester": "codex",
+                "bot_runtime_commit": "abc1234",
+                "harness_core_commit": "def5678",
+                "spark_os_compile_ref": "/tmp/spark-os-compile.json",
+                "spark_live_status_ref": "/tmp/spark-live-status.json",
+                "spark_verify_provenance_ref": "/tmp/spark-verify.json",
+                "telegram_chat_evidence_ref": "/tmp/telegram.png",
+                "overall_verdict": "untested",
+                "follow_up_commits": ["abc1234"],
+                "pr_links": [],
+                "remaining_risks": ["100 live prompts still incomplete"],
+            },
+            generated_at="2026-06-02T00:00:00Z",
+        )
+
+        self.assertEqual(packet["schema_version"], "spark.telegram_live_qa_evidence_packet.v1")
+        self.assertEqual(packet["selection"]["case_count"], 1)
+        self.assertEqual(packet["selection"]["risk_counts"]["safe"], 1)
+        self.assertEqual(packet["summary"]["untested"], 1)
+        self.assertEqual(packet["required_session_evidence"]["profile"], "sparkqa-bot")
+        self.assertEqual(packet["required_session_evidence"]["bot_runtime_commit"], "abc1234")
+        self.assertEqual(packet["required_session_evidence"]["remaining_risks"], ["100 live prompts still incomplete"])
+        self.assertEqual(packet["cases"][0]["verdict"], "untested")
+        self.assertIsNone(packet["cases"][0]["observed_turns"][0]["reply"])
+        self.assertIn("does not prove release readiness", packet["authority_claim_boundary"])
+        validate_instance("telegram-live-qa-evidence-packet-v1", packet)
+
+        invalid = clone(packet)
+        invalid["summary"]["untested"] = -1
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("telegram-live-qa-evidence-packet-v1", invalid)
+
+    def test_kernel_builds_legacy_authority_inventory(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        evidence = [sample_evidence("policy")]
+        removed_route_helper = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:telegram-retired-route-helper",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="regex_router",
+            source_path="removed://spark-telegram-bot/legacy-route-helper",
+            summary="Legacy Telegram route helper is removed; Harness Core plus Governor owns authority.",
+            authority_risk={
+                "can_execute": False,
+                "can_mutate_state": False,
+                "can_route_turns": False,
+                "can_write_memory": False,
+                "can_launch_mission": False,
+                "can_call_network": False,
+                "can_publish": False,
+                "can_schedule": False,
+            },
+            disposition="removed",
+            evidence=evidence,
+        )
+        evidence_only = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:telegram-keyword-detector",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="keyword_detector",
+            source_path="src/intent-keywords.ts",
+            summary="Keyword detector is retained only as Governor evidence.",
+            authority_risk={
+                "can_execute": False,
+                "can_mutate_state": False,
+                "can_route_turns": False,
+                "can_write_memory": False,
+                "can_launch_mission": False,
+                "can_call_network": False,
+                "can_publish": False,
+                "can_schedule": False,
+            },
+            disposition="evidence_adapter",
+            evidence=evidence,
+            evidence_only=True,
+        )
+        inventory = kernel.legacy_authority_inventory(
+            inventory_id="legacy-authority-inventory:telegram",
+            owner_repo="spark-telegram-bot",
+            surfaces=["telegram"],
+            planes=[removed_route_helper, evidence_only],
+        )
+
+        self.assertEqual(inventory["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(inventory["summary"]["plane_count"], 2)
+        self.assertEqual(inventory["summary"]["removed_count"], 1)
+        self.assertEqual(inventory["summary"]["canonical_consumer_count"], 0)
+        self.assertEqual(inventory["summary"]["evidence_adapter_count"], 1)
+        self.assertEqual(inventory["summary"]["release_blocker_count"], 0)
+        self.assertEqual(inventory["summary"]["high_agency_risk_count"], 0)
+        self.assertTrue(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        validate_instance("legacy-authority-inventory-v1", inventory)
+
+    def test_legacy_authority_inventory_blocks_unconverted_high_agency_planes(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        high_agency_risk = {
+            "can_execute": True,
+            "can_mutate_state": True,
+            "can_route_turns": True,
+            "can_write_memory": False,
+            "can_launch_mission": True,
+            "can_call_network": False,
+            "can_publish": False,
+            "can_schedule": False,
+        }
+
+        with self.assertRaises(ValueError):
+            kernel.legacy_authority_plane(
+                plane_id="legacy-plane:bad-compat-route",
+                owner_repo="spark-telegram-bot",
+                surface="telegram",
+                plane_type="local_dispatcher",
+                source_path="src/bad-dispatcher.ts",
+                summary="This still looks like a local executor.",
+                authority_risk=high_agency_risk,
+                disposition="evidence_adapter",
+                evidence=[sample_evidence("policy")],
+            )
+
+        blocker = kernel.legacy_authority_plane(
+            plane_id="legacy-plane:unconverted-launcher",
+            owner_repo="spark-telegram-bot",
+            surface="telegram",
+            plane_type="tool_launcher",
+            source_path="src/unconverted-launcher.ts",
+            summary="Unconverted launcher still has local high-agency authority.",
+            authority_risk=high_agency_risk,
+            disposition="release_blocker",
+            evidence=[sample_evidence("policy")],
+            blockers=["unconverted launcher can still start missions"],
+        )
+        inventory = kernel.legacy_authority_inventory(
+            inventory_id="legacy-authority-inventory:blocked",
+            owner_repo="spark-telegram-bot",
+            surfaces=["telegram"],
+            planes=[blocker],
+        )
+
+        self.assertFalse(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertEqual(inventory["summary"]["release_blocker_count"], 1)
+        self.assertIn("unconverted launcher", " ".join(inventory["release_gate"]["blockers"]))
 
     def test_kernel_change_manifest_enforces_protected_component_approval(self) -> None:
         kernel = HarnessKernel(surface="test_harness")
@@ -919,17 +1900,53 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(manifest["verdict"], "draft")
 
+    def test_protected_components_cannot_be_marked_self_editable(self) -> None:
+        kernel = HarnessKernel(surface="test_harness")
+        protected_component = sample_component("verifier")
+        protected_component["editable_by_evolution"] = True
+
+        with self.assertRaises(SchemaValidationError):
+            validate_instance("harness-component-v1", protected_component)
+
+        with self.assertRaises(SchemaValidationError):
+            kernel.component(
+                component_id="component:benchmark",
+                component_type="benchmark",
+                owner_repo="spark-harness-core",
+                path="eval/benchmarks/genesis.json",
+                summary="Protected benchmark metadata must fail closed.",
+                tests=["python3 -m unittest discover -s tests"],
+                editable_by_evolution=True,
+            )
+
+        editable_adapter = kernel.component(
+            component_id="component:telegram-adapter",
+            component_type="middleware",
+            owner_repo="spark-telegram-bot",
+            path="src/harnessCore.ts",
+            summary="Non-protected adapter can be edited by bounded self-evolution.",
+            tests=["npm test"],
+            editable_by_evolution=True,
+        )
+        self.assertTrue(editable_adapter["editable_by_evolution"])
+
     def test_cli_emits_valid_kernel_operating_records(self) -> None:
         commands = (
             ("resource-registry", "resource-registry-v1"),
             ("experience-index", "experience-index-v1"),
             ("evaluation-pack", "evaluation-pack-v1"),
             ("harness-run --status passed --summary harness-run-proof", "harness-run-v1"),
+            ("legacy-authority-inventory", "legacy-authority-inventory-v1"),
+            ("governor-decision", "governor-decision-v1"),
+            ("telegram-live-qa-packet --include-risky", "telegram-live-qa-evidence-packet-v1"),
             ("change-manifest", "change-manifest-v1"),
+            ("change-manifest-runner", "self-evolution-run-v1"),
             (
                 "readiness-score --category execution=1 --category tools=1 --category context=1 "
                 "--category lifecycle=1 --category observability=1 --category verification=1 "
-                "--category governance=1 --gate zero_high_agency_legacy_local_gates=true",
+                "--category governance=1 --gate performance_budget_proven=true "
+                "--gate governance_rulesets_proven=true "
+                "--gate zero_high_agency_legacy_local_gates=true",
                 "readiness-score-v1",
             ),
             ("self-evolution-run", "self-evolution-run-v1"),
@@ -943,6 +1960,22 @@ class KernelContractTests(unittest.TestCase):
                 self.assertEqual(exit_code, 0)
                 payload = json.loads(stdout.getvalue())
                 validate_instance(schema_name, payload)
+
+    def test_cli_change_manifest_runner_refuses_protected_component_without_approval(self) -> None:
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exit_code = cli_main(["change-manifest-runner", "--component-type", "authority_policy"])
+
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(stdout.getvalue())
+        validate_instance("self-evolution-run-v1", payload)
+        self.assertEqual(payload["promotion_decision"]["verdict"], "not_ready")
+        self.assertIn(
+            "protected_component_requires_approval",
+            payload["promotion_decision"]["summary"],
+        )
+        self.assertEqual(payload["change_manifests"], [])
+        self.assertEqual(payload["target_components"][0]["component_type"], "authority_policy")
 
     def test_cli_rejects_unknown_readiness_inputs(self) -> None:
         with self.assertRaises(ValueError):
