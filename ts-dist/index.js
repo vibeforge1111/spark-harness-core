@@ -785,9 +785,10 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         },
         trace
     };
+    const ledgerId = safeHarnessCoreId('ledger', input.idempotency_key || `${input.envelope.turn_id}:${action.action_id}`);
     const ledger = {
         schema_version: 'tool-call-ledger-v1',
-        ledger_id: safeHarnessCoreId('ledger', `${input.envelope.turn_id}:${action.action_id}`),
+        ledger_id: ledgerId,
         created_at: now,
         turn_id: input.envelope.turn_id,
         action_id: action.action_id,
@@ -821,7 +822,13 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
                 redaction_class: 'metadata_only'
             })
         },
-        trace
+        trace: input.idempotency_key
+            ? createHarnessCoreTraceRef({
+                id: `record:${input.idempotency_key}`,
+                summary: `Governor authorization for ${input.tool_name}.`,
+                redaction_class: 'metadata_only'
+            })
+            : trace
     };
     return createHarnessCoreGovernorDecision({
         envelope: input.envelope,
@@ -858,7 +865,19 @@ function assertHarnessCoreLedgerAuthorizationBinding(ledger) {
     }
 }
 function finalizeHarnessCoreToolCallLedger(input) {
+    const finalTraceId = input.idempotency_key
+        ? safeHarnessCoreId('trace', `finalize:${input.ledger.ledger_id}:${input.idempotency_key}`)
+        : null;
     assertHarnessCoreLedgerAuthorizationBinding(input.ledger);
+    if (HARNESS_CORE_EXECUTED_TOOL_STATUSES.has(input.ledger.result.status)) {
+        if (finalTraceId && input.ledger.trace.id === finalTraceId) {
+            if (input.ledger.result.status !== input.status) {
+                throw new Error('idempotency key already finalized ledger with a different status');
+            }
+            return input.ledger;
+        }
+        throw new Error('terminal tool-call ledger cannot be finalized again');
+    }
     assertHarnessCoreExecutionStatusAuthorized(input.ledger.authorization.verdict, input.status);
     const now = input.now || new Date().toISOString();
     const executeStage = {
@@ -892,7 +911,9 @@ function finalizeHarnessCoreToolCallLedger(input) {
             ...(input.rollback_ref ? { rollback_ref: input.rollback_ref } : {})
         },
         trace: createHarnessCoreTraceRef({
-            id: `${input.ledger.ledger_id}:${input.status}:final`,
+            id: input.idempotency_key
+                ? `finalize:${input.ledger.ledger_id}:${input.idempotency_key}`
+                : `${input.ledger.ledger_id}:${input.status}:final`,
             summary: `Final ledger for ${input.ledger.tool_name}.`
         })
     };

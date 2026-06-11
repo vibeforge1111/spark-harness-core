@@ -975,6 +975,99 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(final_ledger["lifecycle"][-1]["verdict"], "passed")
         validate_instance("tool-call-ledger-v1", final_ledger)
 
+    def test_terminal_tool_call_ledger_cannot_be_refinalized(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload())
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert result.tool_call_ledger is not None
+        final_ledger = finalize_legacy_tool_call_ledger(
+            result.tool_call_ledger,
+            status="success",
+            output_path="builder://turns/turn-test/results/memory-write",
+            summary="Memory write completed.",
+            surface="telegram",
+        )
+
+        with self.assertRaisesRegex(ValueError, "terminal tool-call ledger cannot be finalized again"):
+            HarnessKernel(surface="telegram").finalize_tool_call_ledger(
+                final_ledger,
+                status="failure",
+                output_path="builder://turns/turn-test/results/memory-write-failed",
+                summary="A retry must not rewrite the evidence trail.",
+            )
+
+    def test_record_and_finalize_are_idempotent_with_same_key(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write an explicit Telegram profile fact.",
+            args_path="telegram://turns/req-idempotent/actions/memory.write",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's favorite color.",
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+
+        first_record = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+            idempotency_key="memory-write:req-idempotent",
+        )
+        retry_record = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+            idempotency_key="memory-write:req-idempotent",
+        )
+        self.assertEqual(retry_record["ledger_id"], first_record["ledger_id"])
+        self.assertEqual(retry_record["trace"]["id"], first_record["trace"]["id"])
+
+        final_ledger = kernel.finalize_tool_call_ledger(
+            first_record,
+            status="success",
+            output_path="builder://memory/write/success.json",
+            summary="Memory write completed.",
+            idempotency_key="memory-write:req-idempotent:final",
+        )
+        retry_final = kernel.finalize_tool_call_ledger(
+            final_ledger,
+            status="success",
+            output_path="builder://memory/write/success.json",
+            summary="Memory write completed.",
+            idempotency_key="memory-write:req-idempotent:final",
+        )
+        self.assertEqual(retry_final, final_ledger)
+        with self.assertRaisesRegex(ValueError, "different status"):
+            kernel.finalize_tool_call_ledger(
+                final_ledger,
+                status="failure",
+                output_path="builder://memory/write/failure.json",
+                summary="A retry with a different status must not rewrite the ledger.",
+                idempotency_key="memory-write:req-idempotent:final",
+            )
+
     def test_repairs_stranded_not_started_ledger_with_provenance(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload())
         result = authorize_legacy_tool_call(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,6 +39,12 @@ def _id(prefix: str) -> str:
     return f"{prefix}:{uuid4().hex[:24]}"
 
 
+def _idempotency_id(prefix: str, key: str) -> str:
+    digest = hashlib.sha256(str(key).encode("utf-8")).hexdigest()[:32]
+    safe_prefix = re.sub(r"[^a-z0-9_.:-]+", "-", prefix.lower()).strip("-") or "idempotency"
+    return f"{safe_prefix}:{digest}"[:128]
+
+
 def _parse_iso_timestamp(value: str | None) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -53,6 +61,20 @@ def _parse_iso_timestamp(value: str | None) -> datetime | None:
 def trace_ref(kind: str, summary: str, *, redaction_class: str = "metadata_only") -> dict[str, Any]:
     return {
         "id": _id(f"trace.{kind}"),
+        "redaction_class": redaction_class,
+        "summary": summary,
+    }
+
+
+def idempotent_trace_ref(
+    kind: str,
+    key: str,
+    summary: str,
+    *,
+    redaction_class: str = "metadata_only",
+) -> dict[str, Any]:
+    return {
+        "id": _idempotency_id(f"trace.{kind}", key),
         "redaction_class": redaction_class,
         "summary": summary,
     }
@@ -536,6 +558,7 @@ class HarnessKernel:
         status: str,
         output_path: str,
         summary: str,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         authorization_verdict = str(authorization.get("verdict") or "")
         self._assert_authorization_matches_action(envelope, action, authorization)
@@ -551,7 +574,7 @@ class HarnessKernel:
 
         ledger = {
             "schema_version": "tool-call-ledger-v1",
-            "ledger_id": _id("ledger"),
+            "ledger_id": _idempotency_id("ledger", idempotency_key) if idempotency_key else _id("ledger"),
             "created_at": _now(),
             "turn_id": envelope["turn_id"],
             "action_id": action["action_id"],
@@ -573,7 +596,11 @@ class HarnessKernel:
                 "summary": summary,
                 "sanitized_output_ref": artifact_ref("tool_output", output_path, summary),
             },
-            "trace": trace_ref("tool_call", f"Ledger for {tool_name}."),
+            "trace": (
+                idempotent_trace_ref("tool_call", f"record:{idempotency_key}", f"Ledger for {tool_name}.")
+                if idempotency_key
+                else trace_ref("tool_call", f"Ledger for {tool_name}.")
+            ),
         }
         return validate_instance("tool-call-ledger-v1", ledger)
 
@@ -586,6 +613,7 @@ class HarnessKernel:
         tool_name: str,
         output_path: str,
         summary: str | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         verdict = str(authorization.get("verdict") or "")
         if verdict == "allow":
@@ -599,6 +627,7 @@ class HarnessKernel:
             status="not_started",
             output_path=output_path,
             summary=summary or f"Tool call refused by Harness Core authorization: {reason_text or verdict}.",
+            idempotency_key=idempotency_key,
         )
 
     def finalize_tool_call_ledger(
@@ -610,11 +639,26 @@ class HarnessKernel:
         summary: str,
         error_path: str | None = None,
         rollback_path: str | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        validate_instance("tool-call-ledger-v1", ledger)
-        self._assert_ledger_authorization_binding(ledger)
-        self._assert_execution_status_authorized(str(ledger["authorization"].get("verdict") or ""), status)
-        updated = deepcopy(ledger)
+        validated = validate_instance("tool-call-ledger-v1", ledger)
+        self._assert_ledger_authorization_binding(validated)
+        current_result = validated.get("result") if isinstance(validated.get("result"), dict) else {}
+        current_status = str(current_result.get("status") or "")
+        final_trace_id = (
+            _idempotency_id("trace.tool_call", f"finalize:{validated['ledger_id']}:{idempotency_key}")
+            if idempotency_key
+            else None
+        )
+        if current_status in EXECUTED_TOOL_STATUSES:
+            if idempotency_key and str(validated.get("trace", {}).get("id") or "") == final_trace_id:
+                if current_status != status:
+                    raise ValueError("idempotency key already finalized ledger with a different status")
+                return deepcopy(validated)
+            raise ValueError("terminal tool-call ledger cannot be finalized again")
+
+        self._assert_execution_status_authorized(str(validated["authorization"].get("verdict") or ""), status)
+        updated = deepcopy(validated)
         execute_stage = {"stage": "execute", "at": _now(), "verdict": self._execute_verdict_for_status(status)}
         lifecycle = [dict(item) for item in updated.get("lifecycle", [])]
         if lifecycle and lifecycle[-1].get("stage") == "execute":
@@ -632,7 +676,15 @@ class HarnessKernel:
             result["rollback_ref"] = artifact_ref("rollback", rollback_path, "Tool rollback reference.")
         updated["lifecycle"] = lifecycle
         updated["result"] = result
-        updated["trace"] = trace_ref("tool_call", f"Final ledger for {updated['tool_name']}.")
+        updated["trace"] = (
+            idempotent_trace_ref(
+                "tool_call",
+                f"finalize:{updated['ledger_id']}:{idempotency_key}",
+                f"Final ledger for {updated['tool_name']}.",
+            )
+            if idempotency_key
+            else trace_ref("tool_call", f"Final ledger for {updated['tool_name']}.")
+        )
         return validate_instance("tool-call-ledger-v1", updated)
 
     def repair_stranded_tool_call_ledger(
