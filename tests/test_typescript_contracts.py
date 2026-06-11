@@ -572,6 +572,20 @@ class TypeScriptContractTests(unittest.TestCase):
               summary: 'Publish was interrupted before execution.',
               output_path_or_uri: 'telegram://publish/not-started'
             });
+            const oldNotStartedLedger = JSON.parse(JSON.stringify(authorizedGovernorDecision.tool_ledgers[0]));
+            oldNotStartedLedger.created_at = '2026-06-10T00:00:00.000Z';
+            const repairedStrandedLedger = core.repairHarnessCoreStrandedToolCallLedger({
+              ledger: oldNotStartedLedger,
+              now: '2026-06-10T02:00:01.000Z',
+              stranded_after_seconds: 3600
+            });
+            const freshNotStartedLedger = JSON.parse(JSON.stringify(authorizedGovernorDecision.tool_ledgers[0]));
+            freshNotStartedLedger.created_at = '2026-06-10T01:55:00.000Z';
+            const repairedSweep = core.repairHarnessCoreStrandedToolCallLedgers({
+              ledgers: [oldNotStartedLedger, freshNotStartedLedger, finalizedAuthorizedLedger],
+              now: '2026-06-10T02:00:01.000Z',
+              stranded_after_seconds: 3600
+            });
             console.log(JSON.stringify({
               highRiskOrder: core.HARNESS_CORE_RISK_ORDER.high,
               trace,
@@ -617,7 +631,9 @@ class TypeScriptContractTests(unittest.TestCase):
               copiedLedgerError,
               interruptedGovernorDecision,
               blockedFinalizeError,
-              interruptedNotStartedLedger
+              interruptedNotStartedLedger,
+              repairedStrandedLedger,
+              repairedSweep
             }));
             """
         )
@@ -740,6 +756,16 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertIn("allow authorization", payload["blockedFinalizeError"])
         self.assertEqual(payload["interruptedNotStartedLedger"]["result"]["status"], "not_started")
         self.assertEqual(payload["interruptedNotStartedLedger"]["lifecycle"][-1]["verdict"], "skipped")
+        self.assertEqual(payload["repairedStrandedLedger"]["result"]["status"], "failure")
+        self.assertIn("failure(stranded)", payload["repairedStrandedLedger"]["result"]["summary"])
+        self.assertIn("error_ref", payload["repairedStrandedLedger"]["result"])
+        self.assertEqual(payload["repairedStrandedLedger"]["lifecycle"][-1]["at"], "2026-06-10T02:00:01.000Z")
+        self.assertEqual(payload["repairedStrandedLedger"]["lifecycle"][-1]["verdict"], "failed")
+        self.assertEqual(len(payload["repairedSweep"]), 1)
+        self.assertEqual(
+            payload["repairedSweep"][0]["ledger_id"],
+            payload["repairedStrandedLedger"]["ledger_id"],
+        )
 
     def test_ts_authorized_governor_decision_rejects_missing_action_selector(self) -> None:
         script = textwrap.dedent(

@@ -975,6 +975,66 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(final_ledger["lifecycle"][-1]["verdict"], "passed")
         validate_instance("tool-call-ledger-v1", final_ledger)
 
+    def test_repairs_stranded_not_started_ledger_with_provenance(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload())
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert result.tool_call_ledger is not None
+        stranded = clone(result.tool_call_ledger)
+        stranded["created_at"] = "2026-06-10T00:00:00Z"
+
+        repaired = HarnessKernel(surface="telegram").repair_stranded_tool_call_ledger(
+            stranded,
+            now="2026-06-10T02:00:01Z",
+            stranded_after_seconds=3600,
+        )
+
+        assert repaired is not None
+        self.assertEqual(repaired["ledger_id"], stranded["ledger_id"])
+        self.assertEqual(repaired["result"]["status"], "failure")
+        self.assertIn("failure(stranded)", repaired["result"]["summary"])
+        self.assertIn("error_ref", repaired["result"])
+        self.assertEqual(repaired["lifecycle"][-1]["stage"], "execute")
+        self.assertEqual(repaired["lifecycle"][-1]["at"], "2026-06-10T02:00:01Z")
+        self.assertEqual(repaired["lifecycle"][-1]["verdict"], "failed")
+        self.assertIn("failure(stranded)", repaired["lifecycle"][-1]["summary"])
+        validate_instance("tool-call-ledger-v1", repaired)
+
+    def test_stranded_sweep_only_repairs_aged_not_started_ledgers(self) -> None:
+        envelope = parse_turn_intent_envelope(legacy_envelope_payload())
+        result = authorize_legacy_tool_call(
+            envelope,
+            tool_name="memory.write",
+            owner_system="domain-chip-memory",
+            mutation_class="writes_memory",
+        )
+        assert result.tool_call_ledger is not None
+        old_ledger = clone(result.tool_call_ledger)
+        old_ledger["created_at"] = "2026-06-10T00:00:00Z"
+        fresh_ledger = clone(result.tool_call_ledger)
+        fresh_ledger["created_at"] = "2026-06-10T01:55:00Z"
+        done_ledger = finalize_legacy_tool_call_ledger(
+            result.tool_call_ledger,
+            status="success",
+            output_path="builder://turns/turn-test/results/memory-write",
+            summary="Memory write completed.",
+            surface="telegram",
+        )
+
+        repaired = HarnessKernel(surface="telegram").repair_stranded_tool_call_ledgers(
+            [old_ledger, fresh_ledger, done_ledger],
+            now="2026-06-10T02:00:01Z",
+            stranded_after_seconds=3600,
+        )
+
+        self.assertEqual(len(repaired), 1)
+        self.assertEqual(repaired[0]["ledger_id"], old_ledger["ledger_id"])
+        self.assertEqual(repaired[0]["result"]["status"], "failure")
+
     def test_authorizes_native_vnext_tool_call(self) -> None:
         legacy = parse_turn_intent_envelope(legacy_envelope_payload())
         converted = authorize_legacy_tool_call(

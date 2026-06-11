@@ -635,6 +635,67 @@ class HarnessKernel:
         updated["trace"] = trace_ref("tool_call", f"Final ledger for {updated['tool_name']}.")
         return validate_instance("tool-call-ledger-v1", updated)
 
+    def repair_stranded_tool_call_ledger(
+        self,
+        ledger: dict[str, Any],
+        *,
+        now: str | None = None,
+        stranded_after_seconds: int = 3600,
+        output_path: str | None = None,
+        summary: str | None = None,
+    ) -> dict[str, Any] | None:
+        validated = validate_instance("tool-call-ledger-v1", ledger)
+        result = validated.get("result") if isinstance(validated.get("result"), dict) else {}
+        if result.get("status") != "not_started":
+            return None
+
+        created_at = _parse_iso_timestamp(str(validated.get("created_at") or ""))
+        now_dt = _parse_iso_timestamp(now) or datetime.now(UTC)
+        if created_at is None:
+            return None
+        if (now_dt - created_at).total_seconds() < stranded_after_seconds:
+            return None
+
+        repair_summary = summary or (
+            f"failure(stranded): not_started ledger exceeded {stranded_after_seconds}s without finalization."
+        )
+        path = output_path or f"harness-core://repairs/{validated['ledger_id']}/stranded"
+        repair_at = now_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        updated = deepcopy(validated)
+        execute_stage = {"stage": "execute", "at": repair_at, "verdict": "failed", "summary": repair_summary}
+        lifecycle = [dict(item) for item in updated.get("lifecycle", [])]
+        if lifecycle and lifecycle[-1].get("stage") == "execute":
+            lifecycle[-1] = execute_stage
+        else:
+            lifecycle.append(execute_stage)
+        updated["lifecycle"] = lifecycle
+        updated["result"] = {
+            "status": "failure",
+            "summary": repair_summary,
+            "sanitized_output_ref": artifact_ref("tool_output", path, repair_summary),
+            "error_ref": artifact_ref("tool_error", f"{path}/error", "Stranded ledger repair provenance."),
+        }
+        updated["trace"] = trace_ref("tool_call", f"Stranded ledger repair for {updated['tool_name']}.")
+        return validate_instance("tool-call-ledger-v1", updated)
+
+    def repair_stranded_tool_call_ledgers(
+        self,
+        ledgers: list[dict[str, Any]],
+        *,
+        now: str | None = None,
+        stranded_after_seconds: int = 3600,
+    ) -> list[dict[str, Any]]:
+        repaired: list[dict[str, Any]] = []
+        for ledger in ledgers:
+            item = self.repair_stranded_tool_call_ledger(
+                ledger,
+                now=now,
+                stranded_after_seconds=stranded_after_seconds,
+            )
+            if item is not None:
+                repaired.append(item)
+        return repaired
+
     def component(
         self,
         *,
