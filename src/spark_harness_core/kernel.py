@@ -332,7 +332,11 @@ class HarnessKernel:
         executable = authority_state == "executable"
         read_only_authorized = authority_state == "read_only" and action.get("action_type") == "read"
         freshness_reasons = self._fresh_user_intent_authority_reason_codes(envelope)
-        if freshness_reasons and (executable or read_only_authorized or authority_state == "confirmation_required"):
+        if not self._action_is_proposed_by_envelope(envelope, action):
+            verdict = "deny"
+            approval = {"required": False, "status": "not_required"}
+            reasons = ["action_not_in_envelope: action is not one of the envelope's proposed_actions."]
+        elif freshness_reasons and (executable or read_only_authorized or authority_state == "confirmation_required"):
             verdict = "deny"
             approval = {"required": False, "status": "not_required"}
             reasons = freshness_reasons
@@ -1537,6 +1541,25 @@ class HarnessKernel:
             mismatches.append("capability_id")
         if mismatches:
             raise ValueError(f"authorization does not match proposed action: {', '.join(mismatches)}")
+        if not HarnessKernel._action_is_proposed_by_envelope(envelope, action):
+            raise ValueError("authorization does not reference a proposed action")
+
+    @staticmethod
+    def _action_is_proposed_by_envelope(envelope: dict[str, Any], action: dict[str, Any]) -> bool:
+        expected = (
+            str(action.get("action_id") or ""),
+            str(action.get("capability_id") or ""),
+        )
+        proposed_actions = envelope.get("proposed_actions") if isinstance(envelope.get("proposed_actions"), list) else []
+        return any(
+            (
+                str(item.get("action_id") or ""),
+                str(item.get("capability_id") or ""),
+            )
+            == expected
+            for item in proposed_actions
+            if isinstance(item, dict)
+        )
 
     @staticmethod
     def _assert_ledger_authorization_binding(ledger: dict[str, Any]) -> None:
