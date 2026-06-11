@@ -1,0 +1,18 @@
+{
+  "name": "canonical_json_signature",
+  "input": {
+    "canonical_value": {
+      "Z": 2,
+      "a": 0.000001,
+      "arr": [4.5, 0.002, 1e-27],
+      "b": 1.0,
+      "text": "\u20ac$\u000f\nA'B\"\\\\\"/",
+      "z": 1e+30
+    },
+    "hmac_key": "conformance-secret"
+  },
+  "expected": {
+    "canonical_json": "{\"Z\":2,\"a\":0.000001,\"arr\":[4.5,0.002,1e-27],\"b\":1,\"text\":\"\u20ac$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\",\"z\":1e+30}",
+    "hmac_sha256": "6895c120652ffbbd3b2188dad42a464ce3c8ae1bbbbbc7add1038606d3ee1c73"
+  }
+}

@@ -279,14 +279,24 @@ export interface GovernorDecisionV1 {
 
 export function canonicalHarnessCoreJson(value: unknown): string {
   if (value === undefined) return 'null';
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('canonical JSON numbers must be finite');
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map((item) => canonicalHarnessCoreJson(item)).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, entryValue]) => entryValue !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => compareUtf16Strings(left, right));
   return `{${entries
     .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalHarnessCoreJson(entryValue)}`)
     .join(',')}}`;
+}
+
+function compareUtf16Strings(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = left.charCodeAt(index) - right.charCodeAt(index);
+    if (diff !== 0) return diff;
+  }
+  return left.length - right.length;
 }
 
 export function unsignedHarnessCoreGovernorDecision<T extends Record<string, unknown>>(decision: T): Omit<T, 'signature'> {
