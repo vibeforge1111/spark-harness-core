@@ -27,9 +27,11 @@ from spark_harness_core.legacy_turn_intent import (
     parse_turn_intent_envelope,
     verify_governor_tool_authority,
 )
+from spark_harness_core.sdk import GovernedTurn, governed_turn
 from spark_harness_core.schemas import SchemaValidationError, load_schema, validate_instance
 
 __all__ = [
+    "GovernedTurn",
     "HarnessKernel",
     "LegacyToolAuthorization",
     "READINESS_CATEGORIES",
@@ -47,6 +49,7 @@ __all__ = [
     "finalize_legacy_tool_call_ledger",
     "governor_decision_signature_payload",
     "governor_decision_signature_reason_codes",
+    "governed_turn",
     "load_schema",
     "parse_turn_intent_envelope",
     "sign_governor_decision",

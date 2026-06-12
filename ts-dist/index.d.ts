@@ -650,6 +650,42 @@ export declare function finalizeHarnessCoreToolCallLedger(input: {
     now?: string;
     idempotency_key?: string;
 }): ToolCallLedgerV1;
+export type HarnessCoreGovernedTurn = {
+    governor_decision: GovernorDecisionV1;
+    verification: HarnessCoreGovernorConsumerVerification;
+    ledger: ToolCallLedgerV1;
+    finalized_ledger: ToolCallLedgerV1 | null;
+    finalize: (input: {
+        status: ToolCallLedgerV1['result']['status'];
+        summary: string;
+        output_ref?: HarnessCoreArtifactRef;
+        output_path_or_uri?: string;
+        error_ref?: HarnessCoreArtifactRef;
+        rollback_ref?: HarnessCoreArtifactRef;
+        now?: string;
+        idempotency_key?: string;
+    }) => ToolCallLedgerV1;
+};
+export declare function withGovernedTurn<T>(input: {
+    governor_decision?: GovernorDecisionV1 | null;
+    tool_name: string;
+    action_type: HarnessCoreActionType;
+    owner_system?: string;
+    expected_capability_id?: string;
+    action_id?: string;
+    allow_read_only?: boolean;
+    require_pre_execution_ledger?: boolean;
+    governor_hmac_key?: string | null;
+    governor_hmac_key_id?: string | null;
+    require_signature?: boolean;
+    now?: string | Date | null;
+    success_summary?: string;
+    failure_summary?: string;
+    success_output_path_or_uri?: string;
+    failure_output_path_or_uri?: string;
+    failure_error_ref?: HarnessCoreArtifactRef;
+    on_finalize?: (ledger: ToolCallLedgerV1) => void;
+}, execute: (turn: HarnessCoreGovernedTurn) => T | Promise<T>): Promise<T>;
 export declare function repairHarnessCoreStrandedToolCallLedger(input: {
     ledger: ToolCallLedgerV1;
     now?: string;

@@ -11,6 +11,83 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TypeScriptContractTests(unittest.TestCase):
+    def test_with_governed_turn_finalizes_exception_exit_and_requires_decision(self) -> None:
+        script = textwrap.dedent(
+            """
+            const core = require('./ts-dist/index.js');
+
+            async function main() {
+              const envelope = core.createHarnessCoreActionEnvelopeVNext({
+                surface: 'telegram',
+                ownerSystem: 'spawner-ui',
+                toolName: 'spawner.dispatch',
+                mutationClass: 'launches_mission',
+                source: 'telegram',
+                reason: 'User asked Spark to dispatch a mission.',
+                requestId: 'governed-sdk-ts'
+              });
+              const governorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+                envelope,
+                tool_name: 'spawner.dispatch'
+              });
+              let finalized = null;
+              let thrown = '';
+              try {
+                await core.withGovernedTurn({
+                  governor_decision: governorDecision,
+                  tool_name: 'spawner.dispatch',
+                  owner_system: 'spawner-ui',
+                  action_type: 'launch_mission',
+                  failure_summary: 'Spawner dispatch raised inside the governed turn.',
+                  failure_output_path_or_uri: 'spawner://missions/governed-sdk-ts/failure',
+                  on_finalize: (ledger) => { finalized = ledger; }
+                }, async (turn) => {
+                  if (turn.ledger.result.status !== 'not_started') {
+                    throw new Error('expected pending ledger');
+                  }
+                  throw new Error('dispatch failed');
+                });
+              } catch (error) {
+                thrown = String(error && error.message || error);
+              }
+
+              let missingDecisionError = '';
+              try {
+                await core.withGovernedTurn({
+                  governor_decision: null,
+                  tool_name: 'spawner.dispatch',
+                  owner_system: 'spawner-ui',
+                  action_type: 'launch_mission'
+                }, async () => {});
+              } catch (error) {
+                missingDecisionError = String(error && error.message || error);
+              }
+
+              console.log(JSON.stringify({ finalized, thrown, missingDecisionError }));
+            }
+
+            main().catch((error) => {
+              console.error(error && error.stack || error);
+              process.exit(1);
+            });
+            """
+        )
+
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["thrown"], "dispatch failed")
+        self.assertIn("requires a governor decision", payload["missingDecisionError"])
+        self.assertEqual(payload["finalized"]["result"]["status"], "failure")
+        self.assertEqual(payload["finalized"]["result"]["summary"], "Spawner dispatch raised inside the governed turn.")
+        self.assertEqual(payload["finalized"]["lifecycle"][-1]["stage"], "execute")
+        self.assertEqual(payload["finalized"]["lifecycle"][-1]["verdict"], "failed")
+
     def test_node_package_exports_canonical_contract_helpers(self) -> None:
         script = textwrap.dedent(
             """

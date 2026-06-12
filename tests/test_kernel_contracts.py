@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, bound_ledger_row, evidence_ref
+from spark_harness_core import HarnessKernel, SchemaValidationError, artifact_ref, bound_ledger_row, evidence_ref, governed_turn
 from spark_harness_core.governor_signature import sign_governor_decision
 from spark_harness_core.legacy_turn_intent import (
     authorize_legacy_tool_call,
@@ -47,6 +47,37 @@ def sample_component(component_type: str = "middleware") -> dict:
 
 def sample_evidence(kind: str = "test_result") -> dict:
     return evidence_ref(kind, "tests", "Schema regression evidence.", confidence=0.91)
+
+
+def sample_governor_decision_with_pending_ledger() -> tuple[HarnessKernel, dict]:
+    kernel = HarnessKernel(surface="telegram", actor_id_ref="human:test")
+    action = kernel.proposed_action(
+        capability_id="capability:spawner-ui:spawner.dispatch",
+        action_type="launch_mission",
+        risk_tier="medium",
+        summary="Dispatch a governed mission.",
+        args_path="telegram://turns/governed-sdk/actions/spawner.dispatch",
+        requires_confirmation=False,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary="User asked Spark to dispatch a mission.",
+        raw_turn_summary="Fresh Telegram turn requested mission dispatch.",
+        evidence=[evidence_ref("fresh_user_intent", "telegram", "User explicitly requested mission dispatch.")],
+        proposed_actions=[action],
+        authority_state="executable",
+    )
+    authorization = kernel.authorize(envelope, action)
+    ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name="spawner.dispatch",
+        status="not_started",
+        output_path="spawner://missions/governed-sdk/pending",
+        summary="Spawner dispatch authorized and waiting for execution.",
+    )
+    return kernel, kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
 
 
 def legacy_envelope_payload(*, no_execution: bool = False, can_write_memory: bool = True) -> dict:
@@ -1317,6 +1348,40 @@ class KernelContractTests(unittest.TestCase):
 
         self.assertEqual(verdict, "blocked")
         self.assertIn("no_execution_boundary", reasons)
+
+    def test_governed_turn_context_finalizes_on_exception_exit(self) -> None:
+        kernel, decision = sample_governor_decision_with_pending_ledger()
+        observed = {}
+
+        with self.assertRaises(RuntimeError):
+            with governed_turn(
+                governor_decision=decision,
+                kernel=kernel,
+                tool_name="spawner.dispatch",
+                owner_system="spawner-ui",
+                action_type="launch_mission",
+                failure_summary="Spawner dispatch raised inside the governed turn.",
+                failure_output_path="spawner://missions/governed-sdk/failure",
+            ) as turn:
+                observed["turn"] = turn
+                self.assertEqual(turn.ledger["result"]["status"], "not_started")
+                raise RuntimeError("dispatch failed")
+
+        finalized = observed["turn"].finalized_ledger
+        assert finalized is not None
+        self.assertEqual(finalized["result"]["status"], "failure")
+        self.assertEqual(finalized["result"]["summary"], "Spawner dispatch raised inside the governed turn.")
+        self.assertEqual(finalized["lifecycle"][-1]["stage"], "execute")
+        self.assertEqual(finalized["lifecycle"][-1]["verdict"], "failed")
+
+    def test_governed_turn_refuses_without_governor_decision(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a governor decision"):
+            governed_turn(
+                governor_decision=None,
+                tool_name="spawner.dispatch",
+                owner_system="spawner-ui",
+                action_type="launch_mission",
+            )
 
     def test_explicit_legacy_publish_approves_high_risk_action(self) -> None:
         payload = legacy_envelope_payload()

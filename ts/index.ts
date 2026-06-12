@@ -1797,6 +1797,134 @@ export function finalizeHarnessCoreToolCallLedger(input: {
   };
 }
 
+export type HarnessCoreGovernedTurn = {
+  governor_decision: GovernorDecisionV1;
+  verification: HarnessCoreGovernorConsumerVerification;
+  ledger: ToolCallLedgerV1;
+  finalized_ledger: ToolCallLedgerV1 | null;
+  finalize: (input: {
+    status: ToolCallLedgerV1['result']['status'];
+    summary: string;
+    output_ref?: HarnessCoreArtifactRef;
+    output_path_or_uri?: string;
+    error_ref?: HarnessCoreArtifactRef;
+    rollback_ref?: HarnessCoreArtifactRef;
+    now?: string;
+    idempotency_key?: string;
+  }) => ToolCallLedgerV1;
+};
+
+export async function withGovernedTurn<T>(
+  input: {
+    governor_decision?: GovernorDecisionV1 | null;
+    tool_name: string;
+    action_type: HarnessCoreActionType;
+    owner_system?: string;
+    expected_capability_id?: string;
+    action_id?: string;
+    allow_read_only?: boolean;
+    require_pre_execution_ledger?: boolean;
+    governor_hmac_key?: string | null;
+    governor_hmac_key_id?: string | null;
+    require_signature?: boolean;
+    now?: string | Date | null;
+    success_summary?: string;
+    failure_summary?: string;
+    success_output_path_or_uri?: string;
+    failure_output_path_or_uri?: string;
+    failure_error_ref?: HarnessCoreArtifactRef;
+    on_finalize?: (ledger: ToolCallLedgerV1) => void;
+  },
+  execute: (turn: HarnessCoreGovernedTurn) => T | Promise<T>
+): Promise<T> {
+  const governorDecision = input.governor_decision || null;
+  if (!governorDecision) {
+    throw new Error('withGovernedTurn requires a governor decision');
+  }
+  const expectedCapabilityId =
+    input.expected_capability_id ||
+    (input.owner_system ? safeHarnessCoreId('capability', `${input.owner_system}:${input.tool_name}`) : null);
+  if (!expectedCapabilityId) {
+    throw new Error('withGovernedTurn requires owner_system or expected_capability_id');
+  }
+
+  const verification = verifyHarnessCoreGovernorExecutionAuthority({
+    governor_decision: governorDecision,
+    expected_capability_id: expectedCapabilityId,
+    expected_action_type: input.action_type,
+    tool_name: input.tool_name,
+    action_id: input.action_id,
+    allow_read_only: input.allow_read_only,
+    require_pre_execution_ledger: input.require_pre_execution_ledger,
+    governor_hmac_key: input.governor_hmac_key || null,
+    governor_hmac_key_id: input.governor_hmac_key_id || null,
+    require_signature: input.require_signature,
+    now: input.now || null
+  });
+  if (!verification.allowed) {
+    throw new Error(
+      `withGovernedTurn refused by Governor verification: ${verification.reason_codes.join(', ') || 'unknown'}`
+    );
+  }
+
+  const ledger = governorDecision.tool_ledgers.find((item) => item.ledger_id === verification.ledger_id);
+  if (!ledger) {
+    throw new Error('withGovernedTurn requires a matching pre-execution ledger');
+  }
+
+  let activeLedger = JSON.parse(JSON.stringify(ledger)) as ToolCallLedgerV1;
+  let finalizedLedger: ToolCallLedgerV1 | null = null;
+  const turn: HarnessCoreGovernedTurn = {
+    governor_decision: governorDecision,
+    verification,
+    ledger: activeLedger,
+    finalized_ledger: null,
+    finalize(finalizeInput) {
+      if (finalizedLedger) return finalizedLedger;
+      finalizedLedger = finalizeHarnessCoreToolCallLedger({
+        ledger: activeLedger,
+        status: finalizeInput.status,
+        summary: finalizeInput.summary,
+        output_ref: finalizeInput.output_ref,
+        output_path_or_uri: finalizeInput.output_path_or_uri,
+        error_ref: finalizeInput.error_ref,
+        rollback_ref: finalizeInput.rollback_ref,
+        now: finalizeInput.now,
+        idempotency_key: finalizeInput.idempotency_key
+      });
+      activeLedger = finalizedLedger;
+      turn.ledger = finalizedLedger;
+      turn.finalized_ledger = finalizedLedger;
+      if (input.on_finalize) input.on_finalize(finalizedLedger);
+      return finalizedLedger;
+    }
+  };
+
+  try {
+    const result = await execute(turn);
+    if (!finalizedLedger) {
+      turn.finalize({
+        status: 'success',
+        summary: input.success_summary || 'Governed turn completed.',
+        output_path_or_uri:
+          input.success_output_path_or_uri || `harness-core://governed-turns/${activeLedger.ledger_id}/success`
+      });
+    }
+    return result;
+  } catch (error) {
+    if (!finalizedLedger) {
+      turn.finalize({
+        status: 'failure',
+        summary: input.failure_summary || 'Governed turn failed during execution.',
+        output_path_or_uri:
+          input.failure_output_path_or_uri || `harness-core://governed-turns/${activeLedger.ledger_id}/failure`,
+        error_ref: input.failure_error_ref
+      });
+    }
+    throw error;
+  }
+}
+
 export function repairHarnessCoreStrandedToolCallLedger(input: {
   ledger: ToolCallLedgerV1;
   now?: string;
