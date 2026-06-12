@@ -84,6 +84,16 @@ jobs:
       - name: Run Python conformance vectors
         run: python -m pytest tests/test_conformance.py -q
 
+      - name: Run consumer integration conformance kit
+        run: python -m spark_harness_core.consumer_conformance --fixture good
+
+      - name: Prove consumer integration conformance kit catches failures
+        run: |
+          if python -m spark_harness_core.consumer_conformance --fixture broken; then
+            echo "broken consumer conformance fixture unexpectedly passed"
+            exit 1
+          fi
+
       - name: Run TypeScript conformance vectors
         run: node scripts/run-conformance.mjs
 

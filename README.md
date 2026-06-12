@@ -47,6 +47,7 @@ The kernel can now emit and validate the records Spark needs before promoting a 
 - `governor-decision-v1`: binds one envelope, authorization set, optional ledgers, execution boundary, and reply contract into the canonical route outcome every Spark surface must consume. Decisions may carry a nonce-backed HMAC signature envelope when a surface has a shared governor key.
 - `governor-consumer-verification-v1`: records the consuming surface's fail-closed verification of the Governor decision against expected action, capability, tool, authorization, and ledger ids.
 - `bound_ledger_row` / `boundLedgerRow`: flattens a validated tool ledger plus consumer-verification verdict into the shared `tool_call_ledger` row shape.
+- `consumer_conformance`: runnable doc 30 consumer checklist for CI. Green means propose, decision-through, envelope-bound execution, all-exit finalization, refusal surfacing, attested ledger location, expiry, signatures, and fail-closed behavior are all present.
 - `experience-index-v1`: points to traces, screenshots, tool ledgers, scorecards, diffs, and live proof without flooding the live model context.
 - `readiness-score-v1`: scores execution, tools, context, lifecycle, observability, verification, and governance, then derives blocked, private-ready, release-candidate, or public-ready status from evidence and gates.
 - `change-manifest-v1`: records evidence, root cause, predicted fixes, regression risks, required tests, rollback, observed delta, and verdict. Protected components such as verifiers, benchmarks, model config, and authority policy require explicit human approval evidence for mutation.
@@ -67,6 +68,7 @@ PYTHONPATH=src python3 -m pytest tests/test_kernel_contracts.py tests/test_types
 PYTHONPATH=src python3 -m spark_harness_core.cli validate-schemas
 PYTHONPATH=src python3 -m spark_harness_core.cli resource-registry
 PYTHONPATH=src python3 -m spark_harness_core.cli governor-decision
+PYTHONPATH=src python3 -m spark_harness_core.consumer_conformance --fixture good
 PYTHONPATH=src python3 -m spark_harness_core.cli experience-index
 PYTHONPATH=src python3 -m spark_harness_core.cli telegram-live-qa-packet --include-risky
 PYTHONPATH=src python3 -m spark_harness_core.cli readiness-score --category execution=1 --category tools=1 --category context=1 --category lifecycle=1 --category observability=1 --category verification=1 --category governance=1 --gate zero_high_agency_legacy_local_gates=true
