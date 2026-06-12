@@ -24,6 +24,10 @@ This repo owns the newborn Spark harness kernel: authority envelopes, tool lifec
 - Every improvement must declare predicted fixes, predicted regression risks, required tests, rollback plan, observed delta, and verdict.
 - Failed or regressive edits must be reversible at file/component level.
 
+## Branch Policy
+
+- The installed Spark harness-core module tracks `main` release tags only. Reconcile feature or rescue branches into `main`, tag the verified release point, then update the installed registry pin to that tag commit instead of deepening long-lived runtime branches.
+
 ## Testing
 
 - Run schema validation and kernel tests before claiming this repo is ready for integration.
