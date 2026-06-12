@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from contextlib import redirect_stdout
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
@@ -501,6 +502,73 @@ class KernelContractTests(unittest.TestCase):
             governor_hmac_key_id="local-test",
         )
         self.assertTrue(wrapper_signed_verified["allowed"])
+
+    def test_allow_authorization_emits_default_expiry_and_expired_decision_denies(self) -> None:
+        kernel = HarnessKernel(surface="memory")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write a memory item.",
+            args_path="memory://write.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's preferred editor.",
+            evidence=[evidence_ref("fresh_user_intent", "memory", "User explicitly authorized this memory write.")],
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="low",
+            confidence=0.95,
+        )
+        authorization = kernel.authorize(envelope, action)
+        created_at = datetime.fromisoformat(authorization["created_at"].replace("Z", "+00:00"))
+        expires_at = datetime.fromisoformat(authorization["expires_at"].replace("Z", "+00:00"))
+        self.assertGreaterEqual((expires_at - created_at).total_seconds(), 590)
+        self.assertLessEqual((expires_at - created_at).total_seconds(), 610)
+
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="domain-chip-memory.memory.write",
+            status="not_started",
+            output_path="builder://memory/write/not-started.json",
+            summary="Memory write is authorized and waiting to execute.",
+        )
+        decision = kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger])
+        expired = kernel.verify_governor_execution_authority(
+            decision,
+            expected_capability_id="capability:domain-chip-memory:memory.write",
+            expected_action_type="memory.write",
+            tool_name="domain-chip-memory.memory.write",
+            now=(expires_at + timedelta(seconds=1)).astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        )
+        self.assertFalse(expired["allowed"])
+        self.assertIn("authorization_expired", expired["reason_codes"])
+
+    def test_authorization_expiry_can_be_explicitly_omitted(self) -> None:
+        kernel = HarnessKernel(surface="memory")
+        action = kernel.proposed_action(
+            capability_id="capability:domain-chip-memory:memory.write",
+            action_type="memory.write",
+            risk_tier="low",
+            summary="Write a memory item.",
+            args_path="memory://write.json",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User explicitly asked Spark to remember a profile fact.",
+            raw_turn_summary="Remember the user's preferred editor.",
+            evidence=[evidence_ref("fresh_user_intent", "memory", "User explicitly authorized this memory write.")],
+            proposed_actions=[action],
+            authority_state="executable",
+        )
+        authorization = kernel.authorize(envelope, action, ttl_seconds=None)
+        self.assertNotIn("expires_at", authorization)
 
     def test_authority_binding_ref_evidence_is_schema_valid(self) -> None:
         kernel = HarnessKernel(surface="memory")

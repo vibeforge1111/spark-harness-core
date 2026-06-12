@@ -638,6 +638,7 @@ export declare function createHarnessCoreAuthorizedGovernorDecision(input: {
     reply_instruction?: string;
     now?: string;
     idempotency_key?: string;
+    ttl_seconds?: number | null;
 }): GovernorDecisionV1;
 export declare function finalizeHarnessCoreToolCallLedger(input: {
     ledger: ToolCallLedgerV1;

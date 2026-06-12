@@ -37,6 +37,7 @@ exports.evaluateHarnessCoreChangeManifestRunner = evaluateHarnessCoreChangeManif
 exports.isHarnessCoreProtectedComponentType = isHarnessCoreProtectedComponentType;
 exports.assertHarnessCoreComponentEditablePolicy = assertHarnessCoreComponentEditablePolicy;
 const node_crypto_1 = require("node:crypto");
+const DEFAULT_AUTHORIZATION_TTL_SECONDS = 600;
 function canonicalHarnessCoreJson(value) {
     if (value === undefined)
         return 'null';
@@ -789,6 +790,10 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
         : action.requires_confirmation
             ? 'interrupt'
             : 'allow';
+    const ttlSeconds = input.ttl_seconds === undefined ? DEFAULT_AUTHORIZATION_TTL_SECONDS : input.ttl_seconds;
+    const expiresAt = verdict === 'allow' && ttlSeconds !== null
+        ? new Date(Date.parse(now) + ttlSeconds * 1000).toISOString()
+        : undefined;
     const authorization = {
         schema_version: 'authorization-decision-v1',
         decision_id: safeHarnessCoreId('decision', `${input.envelope.turn_id}:${action.action_id}`),
@@ -824,6 +829,7 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
             publish_allowed: freshnessReasons.length === 0 && authorityReasons.length === 0 && action.action_type === 'publish',
             ...(freshnessReasons.length === 0 && authorityReasons.length === 0 ? input.restrictions || {} : {})
         },
+        ...(expiresAt ? { expires_at: expiresAt } : {}),
         trace
     };
     const ledgerId = safeHarnessCoreId('ledger', input.idempotency_key || `${input.envelope.turn_id}:${action.action_id}`);

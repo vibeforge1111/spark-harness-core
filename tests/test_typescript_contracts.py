@@ -508,11 +508,18 @@ class TypeScriptContractTests(unittest.TestCase):
             const authorizedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
               envelope,
               tool_name: 'spawner.dispatch',
+              now: '2026-06-09T11:50:00.000Z',
               restrictions: {
                 network_allowed: false,
                 write_allowed: true,
                 publish_allowed: false
               }
+            });
+            const nonExpiringGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+              envelope,
+              tool_name: 'spawner.dispatch',
+              now: '2026-06-09T11:50:00.000Z',
+              ttl_seconds: null
             });
             const finalizedAuthorizedLedger = core.finalizeHarnessCoreToolCallLedger({
               ledger: authorizedGovernorDecision.tool_ledgers[0],
@@ -524,14 +531,16 @@ class TypeScriptContractTests(unittest.TestCase):
               governor_decision: authorizedGovernorDecision,
               tool_name: 'spawner.dispatch',
               owner_system: 'spawner-ui',
-              action_type: 'launch_mission'
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const unsignedKeyedGovernorConsumerVerification = core.verifyHarnessCoreGovernorToolAuthority({
               governor_decision: authorizedGovernorDecision,
               tool_name: 'spawner.dispatch',
               owner_system: 'spawner-ui',
               action_type: 'launch_mission',
-              governor_hmac_key: 'test-secret'
+              governor_hmac_key: 'test-secret',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const signedGovernorDecision = core.signHarnessCoreGovernorDecision(authorizedGovernorDecision, {
               key: 'test-secret',
@@ -545,7 +554,8 @@ class TypeScriptContractTests(unittest.TestCase):
               owner_system: 'spawner-ui',
               action_type: 'launch_mission',
               governor_hmac_key: 'test-secret',
-              governor_hmac_key_id: 'local-test'
+              governor_hmac_key_id: 'local-test',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const tamperedSignedGovernorDecision = JSON.parse(JSON.stringify(signedGovernorDecision));
             tamperedSignedGovernorDecision.tool_ledgers[0].tool_name = 'spawner.dispatch.forged';
@@ -555,7 +565,8 @@ class TypeScriptContractTests(unittest.TestCase):
               owner_system: 'spawner-ui',
               action_type: 'launch_mission',
               governor_hmac_key: 'test-secret',
-              governor_hmac_key_id: 'local-test'
+              governor_hmac_key_id: 'local-test',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const boundLedgerRow = core.boundHarnessCoreLedgerRow({
               ledger: authorizedGovernorDecision.tool_ledgers[0],
@@ -573,7 +584,8 @@ class TypeScriptContractTests(unittest.TestCase):
               governor_decision: copiedGovernorDecision,
               tool_name: 'spawner.dispatch',
               owner_system: 'spawner-ui',
-              action_type: 'launch_mission'
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const unboundFreshEnvelope = JSON.parse(JSON.stringify(envelope));
             unboundFreshEnvelope.freshness.fresh_user_intent_ref = {
@@ -728,6 +740,7 @@ class TypeScriptContractTests(unittest.TestCase):
               machineGovernorDecision,
               governorDecision,
               authorizedGovernorDecision,
+              nonExpiringGovernorDecision,
               finalizedAuthorizedLedger,
               governorConsumerVerification,
               unsignedKeyedGovernorConsumerVerification,
@@ -829,6 +842,12 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["authorizedGovernorDecision"]["schema_version"], "governor-decision-v1")
         self.assertEqual(payload["authorizedGovernorDecision"]["outcome"], "execute")
         self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["verdict"], "allow")
+        self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["expires_at"], "2026-06-09T12:00:00.000Z")
+        self.assertEqual(
+            payload["authorizedGovernorDecision"]["tool_ledgers"][0]["authorization"]["expires_at"],
+            "2026-06-09T12:00:00.000Z",
+        )
+        self.assertNotIn("expires_at", payload["nonExpiringGovernorDecision"]["authorizations"][0])
         self.assertEqual(payload["authorizedGovernorDecision"]["tool_ledgers"][0]["tool_name"], "spawner.dispatch")
         self.assertEqual(
             payload["authorizedGovernorDecision"]["tool_ledgers"][0]["authorization"]["capability_id"],

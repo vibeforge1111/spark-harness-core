@@ -4,7 +4,7 @@ import hashlib
 import re
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -29,6 +29,8 @@ LEDGER_ROW_COLUMNS = (
     "summary",
     "ledger_json",
 )
+
+_DEFAULT_AUTHORIZATION_TTL_SECONDS = 600
 
 
 def _now() -> str:
@@ -347,6 +349,7 @@ class HarnessKernel:
         action: dict[str, Any],
         *,
         approval_ref: dict[str, Any] | None = None,
+        ttl_seconds: int | None = _DEFAULT_AUTHORIZATION_TTL_SECONDS,
     ) -> dict[str, Any]:
         validate_instance("turn-intent-envelope-vnext", envelope)
         risk = action["risk_tier"]
@@ -382,6 +385,14 @@ class HarnessKernel:
                 else {"required": False, "status": "not_required"}
             )
             reasons = ["Envelope authority and action risk satisfy the kernel policy."]
+        expires_at = None
+        if verdict == "allow" and ttl_seconds is not None:
+            expires_at = (
+                (datetime.now(UTC) + timedelta(seconds=ttl_seconds))
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
         decision = {
             "schema_version": "authorization-decision-v1",
             "decision_id": _id("decision"),
@@ -395,6 +406,7 @@ class HarnessKernel:
             "evidence": envelope["evidence"],
             "approval": approval,
             "restrictions": self._restrictions_for_decision(verdict, action),
+            **({"expires_at": expires_at} if expires_at else {}),
             "trace": trace_ref("authorization", "Authorization decision created by Spark Harness Core."),
         }
         return validate_instance("authorization-decision-v1", decision)

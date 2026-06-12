@@ -1,5 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 
+const DEFAULT_AUTHORIZATION_TTL_SECONDS = 600;
+
 export type HarnessCoreSchemaVersion = 'turn-intent-envelope-vnext';
 export type HarnessCoreAuthorizationSchemaVersion = 'authorization-decision-v1';
 export type HarnessCoreToolLedgerSchemaVersion = 'tool-call-ledger-v1';
@@ -1574,6 +1576,7 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
   reply_instruction?: string;
   now?: string;
   idempotency_key?: string;
+  ttl_seconds?: number | null;
 }): GovernorDecisionV1 {
   const hasActionSelector = Boolean(input.action_id || input.capability_id);
   const action =
@@ -1610,6 +1613,11 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
       : action.requires_confirmation
         ? 'interrupt'
         : 'allow';
+  const ttlSeconds = input.ttl_seconds === undefined ? DEFAULT_AUTHORIZATION_TTL_SECONDS : input.ttl_seconds;
+  const expiresAt =
+    verdict === 'allow' && ttlSeconds !== null
+      ? new Date(Date.parse(now) + ttlSeconds * 1000).toISOString()
+      : undefined;
   const authorization: AuthorizationDecisionV1 = {
     schema_version: 'authorization-decision-v1',
     decision_id: safeHarnessCoreId('decision', `${input.envelope.turn_id}:${action.action_id}`),
@@ -1648,6 +1656,7 @@ export function createHarnessCoreAuthorizedGovernorDecision(input: {
       publish_allowed: freshnessReasons.length === 0 && authorityReasons.length === 0 && action.action_type === 'publish',
       ...(freshnessReasons.length === 0 && authorityReasons.length === 0 ? input.restrictions || {} : {})
     },
+    ...(expiresAt ? { expires_at: expiresAt } : {}),
     trace
   };
   const ledgerId = safeHarnessCoreId('ledger', input.idempotency_key || `${input.envelope.turn_id}:${action.action_id}`);
