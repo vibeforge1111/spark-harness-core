@@ -573,6 +573,7 @@ export declare function createHarnessCoreActionEnvelopeVNext(input: {
     mutationClass: HarnessCoreActionMutationClass;
     source: string;
     reason: string;
+    turnId?: string | null;
     requestId?: string | null;
     actorKind?: 'human' | 'agent' | 'system';
     actorIdRef?: string | null;

@@ -463,6 +463,7 @@ class TypeScriptContractTests(unittest.TestCase):
               mutationClass: 'launches_mission',
               source: 'execution-panel',
               reason: 'User started execution from Spawner.',
+              turnId: 'turn:spawner-edge',
               requestId: 'dispatch-vnext-test',
               target: 'mission-vnext-test'
             });
@@ -816,6 +817,7 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["protectedRunner"]["promotion_decision"]["verdict"], "not_ready")
         self.assertIn("protected_component_requires_approval", payload["protectedRunner"]["promotion_decision"]["summary"])
         self.assertEqual(payload["envelope"]["schema_version"], "turn-intent-envelope-vnext")
+        self.assertEqual(payload["envelope"]["turn_id"], "turn:spawner-edge")
         self.assertEqual(payload["envelope"]["selected_move"], "execute_action")
         self.assertEqual(payload["envelope"]["action_authority"]["state"], "executable")
         self.assertEqual(payload["envelope"]["freshness"]["fresh_user_intent_ref"]["kind"], "fresh_user_intent")
@@ -866,6 +868,7 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertFalse(payload["tamperedSignedGovernorConsumerVerification"]["allowed"])
         self.assertIn("governor_signature_invalid", payload["tamperedSignedGovernorConsumerVerification"]["reason_codes"])
         self.assertEqual(payload["boundLedgerRow"]["turn_id"], payload["authorizedGovernorDecision"]["turn_id"])
+        self.assertEqual(payload["boundLedgerRow"]["turn_id"], "turn:spawner-edge")
         self.assertEqual(
             payload["boundLedgerRow"]["authorization_decision_id"],
             payload["authorizedGovernorDecision"]["authorizations"][0]["decision_id"],

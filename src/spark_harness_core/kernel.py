@@ -264,6 +264,7 @@ class HarnessKernel:
         selected_move: str,
         intent_summary: str,
         raw_turn_summary: str,
+        turn_id: str | None = None,
         evidence: list[dict[str, Any]] | None = None,
         proposed_actions: list[dict[str, Any]] | None = None,
         authority_state: str | None = None,
@@ -284,7 +285,7 @@ class HarnessKernel:
         state = authority_state or self._default_authority_state(selected_move, actions)
         envelope = {
             "schema_version": "turn-intent-envelope-vnext",
-            "turn_id": _id("turn"),
+            "turn_id": str(turn_id).strip() if turn_id is not None and str(turn_id).strip() else _id("turn"),
             "created_at": _now(),
             "surface": self.surface,
             "actor": {

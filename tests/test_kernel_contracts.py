@@ -196,6 +196,42 @@ class KernelContractTests(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             validate_instance("turn-intent-envelope-vnext", invalid)
 
+    def test_explicit_turn_id_roots_envelope_authorization_and_ledger(self) -> None:
+        kernel = HarnessKernel(surface="telegram")
+        action = kernel.proposed_action(
+            capability_id="capability:spawner-ui:spawner.dispatch",
+            action_type="launch_mission",
+            risk_tier="medium",
+            summary="Dispatch a governed mission.",
+            args_path="telegram://turns/telegram-edge/actions/spawner.dispatch",
+            requires_confirmation=False,
+        )
+        envelope = kernel.create_envelope(
+            selected_move="execute_action",
+            intent_summary="User asked Spark to dispatch a mission.",
+            raw_turn_summary="Fresh Telegram turn requested mission dispatch.",
+            turn_id="turn:telegram-edge",
+            evidence=[evidence_ref("fresh_user_intent", "telegram", "User explicitly requested mission dispatch.")],
+            proposed_actions=[action],
+            authority_state="executable",
+            risk_tier="medium",
+            confidence=0.93,
+        )
+        authorization = kernel.authorize(envelope, action)
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name="spawner.dispatch",
+            status="success",
+            output_path="spawner://missions/telegram-edge/result",
+            summary="Spawner dispatch completed.",
+        )
+
+        self.assertEqual(envelope["turn_id"], "turn:telegram-edge")
+        self.assertEqual(authorization["turn_id"], "turn:telegram-edge")
+        self.assertEqual(ledger["turn_id"], "turn:telegram-edge")
+
     def test_authorization_interrupts_high_risk_action_without_approval(self) -> None:
         kernel = HarnessKernel(surface="cli")
         action = kernel.proposed_action(

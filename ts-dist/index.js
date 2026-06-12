@@ -288,7 +288,7 @@ function createHarnessCoreActionEnvelopeVNext(input) {
     });
     const actionType = actionTypeForHarnessMutation(input.mutationClass, input.publishes);
     const requiresConfirmation = input.requiresHumanConfirmation === true || exports.HARNESS_CORE_RISK_ORDER[riskTier] >= exports.HARNESS_CORE_RISK_ORDER.high;
-    const turnId = safeHarnessCoreId('turn', `${input.surface}:${input.source}:${requestId}`);
+    const turnId = input.turnId?.trim() || safeHarnessCoreId('turn', `${input.surface}:${input.source}:${requestId}`);
     const trace = createHarnessCoreTraceRef({
         id: `${input.surface}:${input.source}:${requestId}`,
         summary: input.reason,
