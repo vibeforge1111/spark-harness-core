@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+  release:
+    types:
+      - published
 
 permissions:
   contents: read
@@ -35,10 +38,25 @@ jobs:
       - name: Build TypeScript packages
         run: npm run build
 
+      - name: Checkout spark-telegram-bot vendor
+        uses: actions/checkout@v6
+        with:
+          repository: vibeforge1111/spark-telegram-bot
+          path: consumers/spark-telegram-bot
+
+      - name: Checkout spawner-ui vendor
+        uses: actions/checkout@v6
+        with:
+          repository: vibeforge1111/vibeship-spawner-ui
+          path: consumers/spawner-ui
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
+      - name: Verify vendored distribution drift
+        run: python scripts/verify_distribution_drift.py --consumer bot=consumers/spark-telegram-bot --consumer spawner=consumers/spawner-ui
 
       - name: Install Python test dependencies
         run: |
