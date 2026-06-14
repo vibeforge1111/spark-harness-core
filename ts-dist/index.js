@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PROTECTED_HARNESS_COMPONENT_TYPES = exports.boundLedgerRow = exports.HARNESS_CORE_RISK_ORDER = void 0;
+exports.PROTECTED_HARNESS_COMPONENT_TYPES = exports.boundLedgerRow = exports.HARNESS_CORE_RISK_ORDER = exports.HARNESS_CORE_MIN_WIRE_CONTRACT_VERSION = exports.HARNESS_CORE_WIRE_CONTRACT_VERSION = void 0;
 exports.canonicalHarnessCoreJson = canonicalHarnessCoreJson;
 exports.unsignedHarnessCoreGovernorDecision = unsignedHarnessCoreGovernorDecision;
 exports.harnessCoreGovernorDecisionSignaturePayload = harnessCoreGovernorDecisionSignaturePayload;
 exports.signHarnessCoreGovernorDecision = signHarnessCoreGovernorDecision;
+exports.negotiateHarnessCoreWireContract = negotiateHarnessCoreWireContract;
 exports.harnessCoreGovernorDecisionSignatureReasonCodes = harnessCoreGovernorDecisionSignatureReasonCodes;
 exports.safeHarnessCoreId = safeHarnessCoreId;
 exports.createHarnessCoreTraceRef = createHarnessCoreTraceRef;
@@ -38,6 +39,8 @@ exports.isHarnessCoreProtectedComponentType = isHarnessCoreProtectedComponentTyp
 exports.assertHarnessCoreComponentEditablePolicy = assertHarnessCoreComponentEditablePolicy;
 const node_crypto_1 = require("node:crypto");
 const DEFAULT_AUTHORIZATION_TTL_SECONDS = 600;
+exports.HARNESS_CORE_WIRE_CONTRACT_VERSION = 1;
+exports.HARNESS_CORE_MIN_WIRE_CONTRACT_VERSION = 1;
 function canonicalHarnessCoreJson(value) {
     if (value === undefined)
         return 'null';
@@ -91,6 +94,42 @@ function signHarnessCoreGovernorDecision(decision, input) {
             signature: hmacSha256Hex(harnessCoreGovernorDecisionSignaturePayload(decision, signature), key)
         }
     };
+}
+function negotiateHarnessCoreWireContract(input) {
+    const consumerVersion = input.consumer_version ?? exports.HARNESS_CORE_WIRE_CONTRACT_VERSION;
+    const producerMin = input.producer_min_version ?? Math.max(1, input.producer_version - 1);
+    const consumerMin = input.consumer_min_version ?? Math.max(1, consumerVersion - 1);
+    if (input.producer_version < producerMin || consumerVersion < consumerMin) {
+        return { allowed: false, agreed_version: null, reason_codes: ['wire_contract_invalid_range'] };
+    }
+    const agreedVersion = Math.min(input.producer_version, consumerVersion);
+    if (agreedVersion < Math.max(producerMin, consumerMin)) {
+        return { allowed: false, agreed_version: null, reason_codes: ['wire_contract_no_overlap'] };
+    }
+    return { allowed: true, agreed_version: agreedVersion, reason_codes: [] };
+}
+function harnessCoreSimulationMarker(reason) {
+    return {
+        dry_run: true,
+        execution_skipped: true,
+        reason
+    };
+}
+function simulatedHarnessCoreGovernorDecision(decision, reason) {
+    if (decision.signature) {
+        throw new Error('dry-run mode cannot retrofit a signed governor decision');
+    }
+    const marker = harnessCoreSimulationMarker(reason);
+    const simulated = JSON.parse(JSON.stringify(decision));
+    simulated.simulation = marker;
+    for (const authorization of simulated.authorizations || []) {
+        authorization.simulation = marker;
+    }
+    for (const ledger of simulated.tool_ledgers || []) {
+        ledger.simulation = marker;
+        ledger.authorization.simulation = marker;
+    }
+    return simulated;
 }
 function harnessCoreGovernorDecisionSignatureReasonCodes(input) {
     const key = (input.key || '').trim();
@@ -510,6 +549,7 @@ function createHarnessCoreGovernorDecision(input) {
         authorizations.some((authorization) => authorization.approval.required);
     return {
         schema_version: 'governor-decision-v1',
+        wire_contract_version: exports.HARNESS_CORE_WIRE_CONTRACT_VERSION,
         decision_id: safeHarnessCoreId('governor-decision', `${input.envelope.turn_id}:${outcome}`),
         created_at: new Date().toISOString(),
         surface: input.envelope.surface,
@@ -656,6 +696,9 @@ function verifyHarnessCoreGovernorExecutionAuthority(input) {
         });
     }
     const reasonCodes = [];
+    reasonCodes.push(...negotiateHarnessCoreWireContract({
+        producer_version: Number(governorDecision.wire_contract_version || 0)
+    }).reason_codes);
     reasonCodes.push(...harnessCoreGovernorDecisionSignatureReasonCodes({
         governor_decision: governorDecision,
         key: input.governor_hmac_key || null,
@@ -794,8 +837,12 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
     const expiresAt = verdict === 'allow' && ttlSeconds !== null
         ? new Date(Date.parse(now) + ttlSeconds * 1000).toISOString()
         : undefined;
+    const simulation = input.dry_run
+        ? harnessCoreSimulationMarker(input.dry_run_reason || 'Dry-run governed turn skipped execution.')
+        : undefined;
     const authorization = {
         schema_version: 'authorization-decision-v1',
+        wire_contract_version: exports.HARNESS_CORE_WIRE_CONTRACT_VERSION,
         decision_id: safeHarnessCoreId('decision', `${input.envelope.turn_id}:${action.action_id}`),
         created_at: now,
         turn_id: input.envelope.turn_id,
@@ -830,11 +877,13 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
             ...(freshnessReasons.length === 0 && authorityReasons.length === 0 ? input.restrictions || {} : {})
         },
         ...(expiresAt ? { expires_at: expiresAt } : {}),
+        ...(simulation ? { simulation } : {}),
         trace
     };
     const ledgerId = safeHarnessCoreId('ledger', input.idempotency_key || `${input.envelope.turn_id}:${action.action_id}`);
     const ledger = {
         schema_version: 'tool-call-ledger-v1',
+        wire_contract_version: exports.HARNESS_CORE_WIRE_CONTRACT_VERSION,
         ledger_id: ledgerId,
         created_at: now,
         turn_id: input.envelope.turn_id,
@@ -869,6 +918,7 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
                 redaction_class: 'metadata_only'
             })
         },
+        ...(simulation ? { simulation } : {}),
         trace: input.idempotency_key
             ? createHarnessCoreTraceRef({
                 id: `record:${input.idempotency_key}`,
@@ -877,13 +927,14 @@ function createHarnessCoreAuthorizedGovernorDecision(input) {
             })
             : trace
     };
-    return createHarnessCoreGovernorDecision({
+    const governorDecision = createHarnessCoreGovernorDecision({
         envelope: input.envelope,
         authorizations: [authorization],
         tool_ledgers: [ledger],
         reply_style: input.reply_style,
         reply_instruction: input.reply_instruction
     });
+    return simulation ? { ...governorDecision, simulation } : governorDecision;
 }
 function executeStageVerdictForHarnessStatus(status) {
     if (status === 'not_started')
@@ -966,7 +1017,10 @@ function finalizeHarnessCoreToolCallLedger(input) {
     };
 }
 async function withGovernedTurn(input, execute) {
-    const governorDecision = input.governor_decision || null;
+    const dryRunSummary = input.dry_run_summary || 'Dry-run governed turn skipped execution.';
+    const governorDecision = input.governor_decision && input.dry_run
+        ? simulatedHarnessCoreGovernorDecision(input.governor_decision, dryRunSummary)
+        : input.governor_decision || null;
     if (!governorDecision) {
         throw new Error('withGovernedTurn requires a governor decision');
     }
@@ -1024,6 +1078,14 @@ async function withGovernedTurn(input, execute) {
             return finalizedLedger;
         }
     };
+    if (input.dry_run) {
+        turn.finalize({
+            status: 'not_started',
+            summary: dryRunSummary,
+            output_path_or_uri: input.dry_run_output_path_or_uri || `harness-core://governed-turns/${activeLedger.ledger_id}/dry-run`
+        });
+        return undefined;
+    }
     try {
         const result = await execute(turn);
         if (!finalizedLedger) {

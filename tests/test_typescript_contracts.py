@@ -88,6 +88,74 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["finalized"]["lifecycle"][-1]["stage"], "execute")
         self.assertEqual(payload["finalized"]["lifecycle"][-1]["verdict"], "failed")
 
+    def test_with_governed_turn_dry_run_skips_callback_and_marks_artifacts(self) -> None:
+        script = textwrap.dedent(
+            """
+            const core = require('./ts-dist/index.js');
+
+            async function main() {
+              const envelope = core.createHarnessCoreActionEnvelopeVNext({
+                surface: 'telegram',
+                ownerSystem: 'spawner-ui',
+                toolName: 'spawner.dispatch',
+                mutationClass: 'launches_mission',
+                source: 'telegram',
+                reason: 'User asked Spark to dispatch a mission.',
+                requestId: 'governed-sdk-ts-dry-run'
+              });
+              const governorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+                envelope,
+                tool_name: 'spawner.dispatch'
+              });
+              let finalized = null;
+              let callbackCalled = false;
+              const result = await core.withGovernedTurn({
+                governor_decision: governorDecision,
+                tool_name: 'spawner.dispatch',
+                owner_system: 'spawner-ui',
+                action_type: 'launch_mission',
+                dry_run: true,
+                dry_run_summary: 'Dry-run dispatch skipped the spawner call.',
+                on_finalize: (ledger) => { finalized = ledger; }
+              }, async () => {
+                callbackCalled = true;
+                throw new Error('dry-run should not execute');
+              });
+
+              const simulatedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
+                envelope,
+                tool_name: 'spawner.dispatch',
+                dry_run: true,
+                dry_run_reason: 'Factory-created dry-run package.'
+              });
+
+              console.log(JSON.stringify({ result, finalized, callbackCalled, simulatedGovernorDecision }));
+            }
+
+            main().catch((error) => {
+              console.error(error && error.stack || error);
+              process.exit(1);
+            });
+            """
+        )
+
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        self.assertNotIn("result", payload)
+        self.assertFalse(payload["callbackCalled"])
+        self.assertTrue(payload["finalized"]["simulation"]["dry_run"])
+        self.assertEqual(payload["finalized"]["result"]["status"], "not_started")
+        self.assertEqual(payload["finalized"]["lifecycle"][-1]["verdict"], "skipped")
+        self.assertTrue(payload["simulatedGovernorDecision"]["simulation"]["dry_run"])
+        self.assertTrue(payload["simulatedGovernorDecision"]["authorizations"][0]["simulation"]["dry_run"])
+        self.assertTrue(payload["simulatedGovernorDecision"]["tool_ledgers"][0]["simulation"]["dry_run"])
+
     def test_node_package_exports_canonical_contract_helpers(self) -> None:
         script = textwrap.dedent(
             """
@@ -483,9 +551,10 @@ class TypeScriptContractTests(unittest.TestCase):
               tool_name: 'spawner.dispatch'
             });
             const action = envelope.proposed_actions[0];
-            const authorization = {
-              schema_version: 'authorization-decision-v1',
-              decision_id: 'decision:spawner-dispatch',
+              const authorization = {
+                schema_version: 'authorization-decision-v1',
+                wire_contract_version: core.HARNESS_CORE_WIRE_CONTRACT_VERSION,
+                decision_id: 'decision:spawner-dispatch',
               created_at: '2026-06-02T00:00:00.000Z',
               turn_id: envelope.turn_id,
               action_id: action.action_id,
@@ -506,6 +575,12 @@ class TypeScriptContractTests(unittest.TestCase):
               envelope,
               authorizations: [authorization]
             });
+            const wireContractNegotiation = core.negotiateHarnessCoreWireContract({
+              producer_version: core.HARNESS_CORE_WIRE_CONTRACT_VERSION + 1,
+              producer_min_version: core.HARNESS_CORE_WIRE_CONTRACT_VERSION,
+              consumer_version: core.HARNESS_CORE_WIRE_CONTRACT_VERSION,
+              consumer_min_version: core.HARNESS_CORE_WIRE_CONTRACT_VERSION
+            });
             const authorizedGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
               envelope,
               tool_name: 'spawner.dispatch',
@@ -515,6 +590,24 @@ class TypeScriptContractTests(unittest.TestCase):
                 write_allowed: true,
                 publish_allowed: false
               }
+            });
+            const nProducerGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            nProducerGovernorDecision.wire_contract_version = core.HARNESS_CORE_WIRE_CONTRACT_VERSION + 1;
+            const nProducerGovernorVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: nProducerGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:55:00.000Z'
+            });
+            const tooNewGovernorDecision = JSON.parse(JSON.stringify(authorizedGovernorDecision));
+            tooNewGovernorDecision.wire_contract_version = core.HARNESS_CORE_WIRE_CONTRACT_VERSION + 2;
+            const tooNewGovernorVerification = core.verifyHarnessCoreGovernorToolAuthority({
+              governor_decision: tooNewGovernorDecision,
+              tool_name: 'spawner.dispatch',
+              owner_system: 'spawner-ui',
+              action_type: 'launch_mission',
+              now: '2026-06-09T11:55:00.000Z'
             });
             const nonExpiringGovernorDecision = core.createHarnessCoreAuthorizedGovernorDecision({
               envelope,
@@ -740,6 +833,9 @@ class TypeScriptContractTests(unittest.TestCase):
               machineEnvelope,
               machineGovernorDecision,
               governorDecision,
+              wireContractNegotiation,
+              nProducerGovernorVerification,
+              tooNewGovernorVerification,
               authorizedGovernorDecision,
               nonExpiringGovernorDecision,
               finalizedAuthorizedLedger,
@@ -833,6 +929,7 @@ class TypeScriptContractTests(unittest.TestCase):
         self.assertEqual(payload["machineGovernorDecision"]["authorizations"][0]["verdict"], "deny")
         self.assertIn("envelope_not_executable", payload["machineGovernorDecision"]["authorizations"][0]["reasons"])
         self.assertEqual(payload["governorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["governorDecision"]["wire_contract_version"], 1)
         self.assertEqual(payload["governorDecision"]["outcome"], "degrade")
         self.assertTrue(payload["governorDecision"]["execution_boundary"]["legacy_authority_demoted"])
         self.assertEqual(payload["governorDecision"]["execution_boundary"]["authorized_action_count"], 1)
@@ -842,6 +939,15 @@ class TypeScriptContractTests(unittest.TestCase):
             payload["governorDecision"]["execution_boundary"]["reasons"],
         )
         self.assertEqual(payload["authorizedGovernorDecision"]["schema_version"], "governor-decision-v1")
+        self.assertEqual(payload["authorizedGovernorDecision"]["wire_contract_version"], 1)
+        self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["wire_contract_version"], 1)
+        self.assertEqual(payload["authorizedGovernorDecision"]["tool_ledgers"][0]["wire_contract_version"], 1)
+        self.assertTrue(payload["wireContractNegotiation"]["allowed"])
+        self.assertEqual(payload["wireContractNegotiation"]["agreed_version"], 1)
+        self.assertTrue(payload["nProducerGovernorVerification"]["allowed"])
+        self.assertEqual(payload["nProducerGovernorVerification"]["reason_codes"], [])
+        self.assertFalse(payload["tooNewGovernorVerification"]["allowed"])
+        self.assertIn("wire_contract_no_overlap", payload["tooNewGovernorVerification"]["reason_codes"])
         self.assertEqual(payload["authorizedGovernorDecision"]["outcome"], "execute")
         self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["verdict"], "allow")
         self.assertEqual(payload["authorizedGovernorDecision"]["authorizations"][0]["expires_at"], "2026-06-09T12:00:00.000Z")

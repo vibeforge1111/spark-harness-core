@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "wire_contract_version",
     "decision_id",
     "created_at",
     "surface",
@@ -24,6 +25,7 @@
   ],
   "properties": {
     "schema_version": { "const": "governor-decision-v1" },
+    "wire_contract_version": { "type": "integer", "minimum": 1 },
     "decision_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
     "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
     "surface": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/surface" },
@@ -103,6 +105,16 @@
           "type": "string",
           "pattern": "^[0-9a-fA-F]{64}$"
         }
+      }
+    },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dry_run", "execution_skipped", "reason"],
+      "properties": {
+        "dry_run": { "const": true },
+        "execution_skipped": { "const": true },
+        "reason": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
       }
     },
     "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }

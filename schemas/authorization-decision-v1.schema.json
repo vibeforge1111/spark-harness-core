@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "wire_contract_version",
     "decision_id",
     "created_at",
     "turn_id",
@@ -21,6 +22,7 @@
   ],
   "properties": {
     "schema_version": { "const": "authorization-decision-v1" },
+    "wire_contract_version": { "type": "integer", "minimum": 1 },
     "decision_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
     "created_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
     "turn_id": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/sparkId" },
@@ -72,6 +74,16 @@
       }
     },
     "expires_at": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/isoTimestamp" },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dry_run", "execution_skipped", "reason"],
+      "properties": {
+        "dry_run": { "const": true },
+        "execution_skipped": { "const": true },
+        "reason": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/nonEmptyString" }
+      }
+    },
     "trace": { "$ref": "https://spark.local/schemas/common-v1.schema.json#/$defs/traceRef" }
   },
   "allOf": [

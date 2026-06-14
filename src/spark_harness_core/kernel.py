@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from spark_harness_core.governor_signature import governor_decision_signature_reason_codes
 from spark_harness_core.schemas import validate_instance, validate_schema_ref
+from spark_harness_core.wire_contract import HARNESS_CORE_WIRE_CONTRACT_VERSION, negotiate_wire_contract
 
 
 LEDGER_ROW_COLUMNS = (
@@ -396,6 +397,7 @@ class HarnessKernel:
             )
         decision = {
             "schema_version": "authorization-decision-v1",
+            "wire_contract_version": HARNESS_CORE_WIRE_CONTRACT_VERSION,
             "decision_id": _id("decision"),
             "created_at": _now(),
             "turn_id": envelope["turn_id"],
@@ -436,6 +438,7 @@ class HarnessKernel:
         )
         decision = {
             "schema_version": "governor-decision-v1",
+            "wire_contract_version": HARNESS_CORE_WIRE_CONTRACT_VERSION,
             "decision_id": _id("governor-decision"),
             "created_at": _now(),
             "surface": envelope["surface"],
@@ -497,6 +500,8 @@ class HarnessKernel:
             )
 
         reason_codes: list[str] = []
+        wire_contract = negotiate_wire_contract(producer_version=int(decision.get("wire_contract_version") or 0))
+        reason_codes.extend(wire_contract.reason_codes)
         reason_codes.extend(
             governor_decision_signature_reason_codes(
                 decision,
@@ -587,6 +592,7 @@ class HarnessKernel:
 
         ledger = {
             "schema_version": "tool-call-ledger-v1",
+            "wire_contract_version": HARNESS_CORE_WIRE_CONTRACT_VERSION,
             "ledger_id": _idempotency_id("ledger", idempotency_key) if idempotency_key else _id("ledger"),
             "created_at": _now(),
             "turn_id": envelope["turn_id"],

@@ -29,14 +29,23 @@ from spark_harness_core.legacy_turn_intent import (
 )
 from spark_harness_core.sdk import GovernedTurn, governed_turn
 from spark_harness_core.schemas import SchemaValidationError, load_schema, validate_instance
+from spark_harness_core.wire_contract import (
+    HARNESS_CORE_MIN_WIRE_CONTRACT_VERSION,
+    HARNESS_CORE_WIRE_CONTRACT_VERSION,
+    WireContractNegotiation,
+    negotiate_wire_contract,
+)
 
 __all__ = [
     "GovernedTurn",
     "HarnessKernel",
+    "HARNESS_CORE_MIN_WIRE_CONTRACT_VERSION",
+    "HARNESS_CORE_WIRE_CONTRACT_VERSION",
     "LegacyToolAuthorization",
     "READINESS_CATEGORIES",
     "SchemaValidationError",
     "TurnIntentEnvelope",
+    "WireContractNegotiation",
     "artifact_ref",
     "authorize_legacy_tool_call",
     "authorize_tool_call",
@@ -51,6 +60,7 @@ __all__ = [
     "governor_decision_signature_reason_codes",
     "governed_turn",
     "load_schema",
+    "negotiate_wire_contract",
     "parse_turn_intent_envelope",
     "sign_governor_decision",
     "trace_ref",
