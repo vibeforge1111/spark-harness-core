@@ -28,6 +28,33 @@ def _ledger_by_id(governor_decision: dict[str, Any], ledger_id: str | None) -> d
     raise PermissionError("governed_turn requires a matching pre-execution ledger")
 
 
+def _simulation(reason: str) -> dict[str, Any]:
+    return {
+        "dry_run": True,
+        "execution_skipped": True,
+        "reason": reason,
+    }
+
+
+def _simulated_governor_decision(governor_decision: dict[str, Any], reason: str) -> dict[str, Any]:
+    simulated = deepcopy(governor_decision)
+    if simulated.get("signature"):
+        raise ValueError("dry-run mode cannot retrofit a signed governor decision")
+    marker = _simulation(reason)
+    simulated["simulation"] = marker
+    for authorization in simulated.get("authorizations") or []:
+        if isinstance(authorization, dict):
+            authorization["simulation"] = marker
+    for ledger in simulated.get("tool_ledgers") or []:
+        if not isinstance(ledger, dict):
+            continue
+        ledger["simulation"] = marker
+        authorization = ledger.get("authorization")
+        if isinstance(authorization, dict):
+            authorization["simulation"] = marker
+    return simulated
+
+
 @dataclass
 class GovernedTurn:
     kernel: HarnessKernel
@@ -39,9 +66,20 @@ class GovernedTurn:
     success_output_path: str | None = None
     failure_output_path: str | None = None
     error_path: str | None = None
+    dry_run: bool = False
+    should_execute: bool = True
+    dry_run_summary: str = "Dry-run governed turn skipped execution."
+    dry_run_output_path: str | None = None
     finalized_ledger: dict[str, Any] | None = None
 
     def __enter__(self) -> "GovernedTurn":
+        if self.dry_run and self.finalized_ledger is None:
+            self.finalize(
+                status="not_started",
+                summary=self.dry_run_summary,
+                output_path=self.dry_run_output_path
+                or f"harness-core://governed-turns/{self.ledger['ledger_id']}/dry-run",
+            )
         return self
 
     def __exit__(
@@ -111,6 +149,9 @@ def governed_turn(
     success_output_path: str | None = None,
     failure_output_path: str | None = None,
     error_path: str | None = None,
+    dry_run: bool = False,
+    dry_run_summary: str = "Dry-run governed turn skipped execution.",
+    dry_run_output_path: str | None = None,
 ) -> GovernedTurn:
     if not isinstance(governor_decision, dict):
         raise ValueError("governed_turn requires a governor decision")
@@ -119,9 +160,12 @@ def governed_turn(
             raise ValueError("governed_turn requires owner_system or expected_capability_id")
         expected_capability_id = _safe_id("capability", f"{owner_system}:{tool_name}")
 
-    active_kernel = kernel or HarnessKernel(surface=str(governor_decision.get("surface") or "future_surface"))
+    effective_governor_decision = (
+        _simulated_governor_decision(governor_decision, dry_run_summary) if dry_run else governor_decision
+    )
+    active_kernel = kernel or HarnessKernel(surface=str(effective_governor_decision.get("surface") or "future_surface"))
     verification = active_kernel.verify_governor_execution_authority(
-        governor_decision,
+        effective_governor_decision,
         expected_capability_id=expected_capability_id,
         expected_action_type=action_type,
         tool_name=tool_name,
@@ -137,10 +181,10 @@ def governed_turn(
         reason_codes = ", ".join(str(reason) for reason in verification.get("reason_codes") or [])
         raise PermissionError(f"governed_turn refused by Governor verification: {reason_codes or 'unknown'}")
 
-    ledger = _ledger_by_id(governor_decision, verification.get("ledger_id"))
+    ledger = _ledger_by_id(effective_governor_decision, verification.get("ledger_id"))
     return GovernedTurn(
         kernel=active_kernel,
-        governor_decision=deepcopy(governor_decision),
+        governor_decision=deepcopy(effective_governor_decision),
         verification=verification,
         ledger=ledger,
         success_summary=success_summary,
@@ -148,4 +192,8 @@ def governed_turn(
         success_output_path=success_output_path,
         failure_output_path=failure_output_path,
         error_path=error_path,
+        dry_run=dry_run,
+        should_execute=not dry_run,
+        dry_run_summary=dry_run_summary,
+        dry_run_output_path=dry_run_output_path,
     )

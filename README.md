@@ -19,6 +19,7 @@ model proposes -> Governor decides -> lifecycle executes -> ledger records -> ev
 ## Core Docs
 
 - [Runtime Charter](docs/RUNTIME_CHARTER.md)
+- [Consumer Integration Guide](docs/CONSUMER_INTEGRATION_GUIDE.md)
 - [Telegram First Integration Plan](docs/TELEGRAM_FIRST_INTEGRATION_PLAN.md)
 - [Kernel Schema Design](docs/SPARK_GENESIS_KERNEL_SCHEMA_DESIGN.md)
 

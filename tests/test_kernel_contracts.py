@@ -1478,6 +1478,34 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(finalized["lifecycle"][-1]["stage"], "execute")
         self.assertEqual(finalized["lifecycle"][-1]["verdict"], "failed")
 
+    def test_governed_turn_dry_run_marks_artifacts_and_skips_execution(self) -> None:
+        kernel, decision = sample_governor_decision_with_pending_ledger()
+        executed = False
+
+        with governed_turn(
+            governor_decision=decision,
+            kernel=kernel,
+            tool_name="spawner.dispatch",
+            owner_system="spawner-ui",
+            action_type="launch_mission",
+            dry_run=True,
+            dry_run_summary="Dry-run dispatch skipped the spawner call.",
+        ) as turn:
+            self.assertFalse(turn.should_execute)
+            if turn.should_execute:
+                executed = True
+
+        self.assertFalse(executed)
+        self.assertTrue(turn.governor_decision["simulation"]["dry_run"])
+        self.assertTrue(turn.governor_decision["authorizations"][0]["simulation"]["dry_run"])
+        self.assertTrue(turn.governor_decision["tool_ledgers"][0]["simulation"]["dry_run"])
+        assert turn.finalized_ledger is not None
+        self.assertTrue(turn.finalized_ledger["simulation"]["dry_run"])
+        self.assertEqual(turn.finalized_ledger["result"]["status"], "not_started")
+        self.assertEqual(turn.finalized_ledger["lifecycle"][-1]["verdict"], "skipped")
+        validate_instance("governor-decision-v1", turn.governor_decision)
+        validate_instance("tool-call-ledger-v1", turn.finalized_ledger)
+
     def test_governed_turn_refuses_without_governor_decision(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires a governor decision"):
             governed_turn(
