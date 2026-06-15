@@ -805,15 +805,6 @@ def authorize_vnext_tool_call(
     decision = kernel.authorize(envelope, action, approval_ref=approval_ref)
     if reasons:
         decision = _deny_decision(decision, tuple(reasons))
-    if not action_was_proposed:
-        return LegacyToolAuthorization(
-            "blocked",
-            tuple(str(reason) for reason in decision["reasons"]),
-            envelope,
-            action,
-            decision,
-            None,
-        )
     output_path = (
         f"builder://turns/{_safe_id('turn', str(envelope.get('turn_id') or 'vnext'))}"
         f"/tool-ledgers/{_safe_id('tool', ledger_tool_name)}"
@@ -827,6 +818,15 @@ def authorize_vnext_tool_call(
             status="not_started",
             output_path=output_path,
             summary="Tool call authorized and awaiting execution.",
+        )
+    elif not action_was_proposed:
+        ledger = kernel.record_unproposed_refusal(
+            envelope=envelope,
+            action=action,
+            authorization=decision,
+            tool_name=ledger_tool_name,
+            output_path=output_path,
+            summary="Tool call blocked because the requested action was not proposed by the turn envelope.",
         )
     else:
         ledger = kernel.record_refusal(

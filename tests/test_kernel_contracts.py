@@ -1440,6 +1440,15 @@ class KernelContractTests(unittest.TestCase):
         self.assertIn("proposed_action_not_authorized", result.reason_codes)
         assert result.authorization_decision is not None
         self.assertEqual(result.authorization_decision["verdict"], "deny")
+        assert result.tool_call_ledger is not None
+        self.assertEqual(result.tool_call_ledger["authorization"]["verdict"], "deny")
+        self.assertEqual(result.tool_call_ledger["result"]["status"], "not_started")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][0]["stage"], "propose")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][0]["verdict"], "failed")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][1]["stage"], "authorize")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][1]["verdict"], "failed")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][2]["stage"], "execute")
+        self.assertEqual(result.tool_call_ledger["lifecycle"][2]["verdict"], "skipped")
 
     def test_legacy_turn_intent_tuple_api_uses_shared_core(self) -> None:
         envelope = parse_turn_intent_envelope(legacy_envelope_payload(no_execution=True))

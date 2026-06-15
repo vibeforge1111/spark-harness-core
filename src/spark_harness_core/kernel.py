@@ -649,6 +649,60 @@ class HarnessKernel:
             idempotency_key=idempotency_key,
         )
 
+    def record_unproposed_refusal(
+        self,
+        *,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+        tool_name: str,
+        output_path: str,
+        summary: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        verdict = str(authorization.get("verdict") or "")
+        if verdict == "allow":
+            raise ValueError("record_unproposed_refusal requires a non-allow authorization")
+        reason_text = ", ".join(str(reason) for reason in authorization.get("reasons") or [])
+        created_at = _now()
+        ledger = {
+            "schema_version": "tool-call-ledger-v1",
+            "wire_contract_version": HARNESS_CORE_WIRE_CONTRACT_VERSION,
+            "ledger_id": _idempotency_id("ledger", idempotency_key) if idempotency_key else _id("ledger"),
+            "created_at": created_at,
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
+            "tool_name": tool_name,
+            "lifecycle": [
+                {
+                    "stage": "propose",
+                    "at": envelope["created_at"],
+                    "verdict": "failed",
+                    "summary": "Consumer-requested action was not proposed by the turn envelope.",
+                },
+                {"stage": "authorize", "at": authorization["created_at"], "verdict": "failed"},
+                {"stage": "execute", "at": created_at, "verdict": "skipped"},
+            ],
+            "authorization": authorization,
+            "arguments": {
+                "schema_valid": True,
+                "raw_ref": action["args_ref"],
+                "sanitized_ref": action["args_ref"],
+            },
+            "result": {
+                "status": "not_started",
+                "summary": summary or f"Tool call refused because it was not proposed by the envelope: {reason_text or verdict}.",
+                "sanitized_output_ref": artifact_ref("tool_output", output_path, summary or "Tool call refused before execution."),
+            },
+            "trace": (
+                idempotent_trace_ref("tool_call", f"unproposed-refusal:{idempotency_key}", f"Unproposed refusal for {tool_name}.")
+                if idempotency_key
+                else trace_ref("tool_call", f"Unproposed refusal for {tool_name}.")
+            ),
+        }
+        return validate_instance("tool-call-ledger-v1", ledger)
+
     def finalize_tool_call_ledger(
         self,
         ledger: dict[str, Any],
